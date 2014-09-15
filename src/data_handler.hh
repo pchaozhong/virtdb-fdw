@@ -61,7 +61,7 @@ namespace virtdb {
                     if (is_null(column_id))
                         return NULL;
                     virtdb::interface::pb::ValueType* value = data.find(column_id)->second[current_chunk].mutable_data();
-                    return new T(virtdb::util::value_type<T>::get(*value, inner_cursor, T()));
+                    return &virtdb::util::value_type<T>::get(*value, inner_cursor);
                 }
                 catch(const ::google::protobuf::FatalException & e)
                 {
@@ -69,7 +69,5 @@ namespace virtdb {
                     throw std::invalid_argument(error_string);
                 }
             }
-
-            const std::string* const get_string(int column_number) const;
     };
 }

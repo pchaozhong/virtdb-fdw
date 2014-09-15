@@ -1,4 +1,5 @@
 #include "data_handler.hh"
+#include <logger.hh>
 
 namespace virtdb {
 
@@ -6,10 +7,13 @@ data_handler::data_handler(const query& query_data) :
     n_columns(query_data.columns_size()),
     queryid (query_data.id())
 {
+    LOG_TRACE("In data_handler ctr."<<V_(n_columns));
     for (int i = 0; i < n_columns; i++)
     {
         std::string colname = query_data.column(i);
+        LOG_TRACE("Column name:" << V_(colname));
         column_names[colname] = query_data.column_id(i);
+        LOG_TRACE("Column id:" << V_(query_data.column_id(i)));
         vec_column_ids.push_back(query_data.column_id(i));
     }
 }
@@ -98,20 +102,6 @@ bool data_handler::is_null(int column_id) const
             throw std::invalid_argument(error_string);
         }
         return data.find(column_id)->second[current_chunk].data().isnull(inner_cursor);
-    }
-    catch(const ::google::protobuf::FatalException & e)
-    {
-        std::string error_string = "Error [" + std::to_string(__LINE__) + "]! Inner_cursor: " + std::to_string(inner_cursor) + " " + e.what();
-        throw std::invalid_argument(error_string);
-    }
-}
-
-const std::string* const data_handler::get_string(int column_id) const
-{
-    try {
-        if (is_null(column_id))
-            return NULL;
-        return &data.find(column_id)->second[current_chunk].data().stringvalue(inner_cursor);
     }
     catch(const ::google::protobuf::FatalException & e)
     {

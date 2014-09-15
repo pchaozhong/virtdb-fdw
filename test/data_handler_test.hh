@@ -36,7 +36,7 @@ namespace virtdb
 
     TEST_F(data_handler_test, errors)
     {
-        int n_rows = 10;
+        int n_rows = 1;
         query the_query;
         the_query.set_table_name( "Query test" );
         std::string colname = gen_random(colname_length);
@@ -51,14 +51,17 @@ namespace virtdb
         {
             ASSERT_EQ(true, handler.has_data());
             ASSERT_EQ(true, handler.read_next());
-            handler.get_string(0);
+            handler.get<std::string>(0);
         });
 
         EXPECT_NO_THROW(
         {
             ASSERT_EQ(true, handler.is_null(1));    // no such column
-            ASSERT_EQ(nullptr, handler.get_string(1));
+            ASSERT_EQ(nullptr, handler.get<std::string>(1));
         });
+
+        EXPECT_THROW(handler.get<int32_t>(0), std::logic_error);
+        ASSERT_EQ(false, handler.read_next());
     }
 
     TEST_F(data_handler_test, push_test)
@@ -94,11 +97,11 @@ namespace virtdb
                 {
                     if (columns[column_index].data().isnull(row_index) == true)
                     {
-                        ASSERT_EQ(handler.get_string(column_index), nullptr);
+                        ASSERT_EQ(handler.get<std::string>(column_index), nullptr);
                     }
                     else
                     {
-                        ASSERT_EQ(*handler.get_string(column_index), columns[column_index].data().stringvalue(row_index));
+                        ASSERT_EQ(*handler.get<std::string>(column_index), columns[column_index].data().stringvalue(row_index));
                     }
                 }
             }
@@ -145,11 +148,11 @@ namespace virtdb
                     continue;
                 if (columns[it->first].data().isnull(row_index) == true)
                 {
-                    ASSERT_EQ(handler.get_string(it->first), nullptr);
+                    ASSERT_EQ(handler.get<std::string>(it->first), nullptr);
                 }
                 else
                 {
-                    ASSERT_EQ(*handler.get_string(it->first), columns[it->first].data().stringvalue(row_index));
+                    ASSERT_EQ(*handler.get<std::string>(it->first), columns[it->first].data().stringvalue(row_index));
                 }
             }
         }

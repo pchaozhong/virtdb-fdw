@@ -40,3 +40,6 @@ gtest-config
 src/gtest-1.7.0/Makefile
 test/*_test
 autom4te.cache
+
+# Atom.io symbol info
+tags
