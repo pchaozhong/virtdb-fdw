@@ -31,8 +31,8 @@ namespace virtdb {
             bool done = false;
             std::map<std::string, cv_data> cv;
             std::map<const ForeignScanState* const, data_handler* > active_queries;
-            zmq::context_t* zmq_context;
-            zmq::socket_t*  data_socket;
+            zmq::context_t* zmq_context = nullptr;
+            zmq::socket_t*  data_socket = nullptr;
             std::string     query_address = "";
             std::string     data_address = "";
             cv_data         query_url_cv;
