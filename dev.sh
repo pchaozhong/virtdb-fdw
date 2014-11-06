@@ -42,5 +42,5 @@ function install {
     echo "Successfully installed fdw to $CONTAINER"
 }
 
-docker run -t --rm -v /home/szhuber/u501/virtdb-fdw:/fdw --name fdw-builder fdw-build /fdw/build.sh $CLEAN
+docker run -t --rm -v $PWD:/fdw --name fdw-builder fdw-build /fdw/build.sh $CLEAN
 $INSTALL && install
