@@ -1,17 +1,16 @@
 EXTENSION := src/virtdb_fdw
 EXTVERSION := $(shell grep default_version $(EXTENSION).control | sed -e "s/default_version[[:space:]]*=[[:space:]]*'\([^']*\)'/\1/")
 
-all: $(EXTENSION)--$(EXTVERSION).sql common-build-all 
+all: $(EXTENSION)--$(EXTVERSION).sql common-build-all
 
 BUILD_ROOT := $(shell pwd)
 include ./fdw.mk
 
 MODULE_big = virtdb_fdw
-OBJS := src/virtdb_fdw_main.o src/virtdb_fdw.o $(FDW_OBJS)
+OBJS := src/virtdb_fdw_main.o src/virtdb_fdw.o
 SHLIB_LINK := -lstdc++
 DATA := $(EXTENSION)--$(EXTVERSION).sql
 EXTRA_CLEAN := $(EXTENSION)--$(EXTVERSION).sql \
-               $(FDW_OBJS) \
                $(wildcard $(BUILD_ROOT)/src/*.d) \
                $(wildcard $(BUILD_ROOT)/src/*.o) \
                $(OBJS) \
@@ -60,12 +59,6 @@ common-build-all:
 $(PROTOBUF_HEADERS): $(PROTOBUF_PROTOS)
 	cd $(BUILD_ROOT)/common; make -f common.mk all
 
--include $(FDW_OBJS:.o=.d)
-
-src/virtdb_fdw.o: $(FDW_OBJS)
-
-$(FDW_OBJS): $(PROTOBUF_HEADERS)
-
 $(EXTENSION)--$(EXTVERSION).sql: $(EXTENSION).sql
 	echo $< $@
 	cp $< $@
@@ -85,4 +78,3 @@ virtdb-clean: test-build-clean clean
 	@find . -type f -name "*.pb.h"
 	@find . -type f -name "*.pb.cc"
 	@find . -type f -name "*.pb.h"
-
