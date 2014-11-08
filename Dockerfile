@@ -30,3 +30,5 @@ RUN make
 RUN make install
 ENV PKG_CONFIG_PATH /usr/local/lib/pkgconfig
 
+CMD mkdir -p /fdw
+WORKDIR /fdw

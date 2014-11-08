@@ -4,7 +4,7 @@ FDW_FILE_NAMES := expression.cc query.cc receiver_thread.cc data_handler.cc
 
 FDW_SOURCES  := $(patsubst %.cc,$(BUILD_ROOT)/src/%.cc,$(FDW_FILE_NAMES))
 ZMQ_LDFLAGS  := $(shell pkg-config --libs libzmq)
-ZMQ_CFLAGS   := $(shell pkg-config --cflags libzmq) -I$(BUILD_ROOT)/src/cppzmq
+ZMQ_CFLAGS   := $(shell pkg-config --cflags libzmq) -I$(BUILD_ROOT)/common/cppzmq
 
 PROTOBUF_LDFLAGS  := $(shell pkg-config --libs protobuf)
 PROTOBUF_CFLAGS   := $(shell pkg-config --cflags protobuf)
