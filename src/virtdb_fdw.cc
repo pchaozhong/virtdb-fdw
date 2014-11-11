@@ -19,6 +19,7 @@ extern "C" {
     #include <utils/rel.h>
     #include <utils/builtins.h>
     #include <utils/date.h>
+    #include <utils/timestamp.h>
     #include <utils/syscache.h>
     #include <optimizer/pathnode.h>
     #include <optimizer/planmain.h>
@@ -161,7 +162,6 @@ cbGetForeignRelSize( PlannerInfo *root,
 
         }
 
-        LOG_INFO("Connecting to query client." << V_(current_provider->name));
         current_provider->query_push_client =
             new push_client<virtdb::interface::pb::Query>(*ep_client, current_provider->name);
 
@@ -198,7 +198,7 @@ cbGetForeignRelSize( PlannerInfo *root,
     }
     catch(const std::exception & e)
     {
-        elog(ERROR, "[%s:%d] internal error in %s: %s",__FILE__,__LINE__,__func__,e.what());
+        LOG_ERROR("Internal error." << E_(e));
     }
 
 }
@@ -273,11 +273,43 @@ static ForeignScan
     return ret;
 }
 
-virtdb::interface::pb::Field getField(const std::string& name, Oid atttypeid)
+virtdb::interface::pb::Field getField(const std::string& name, Oid atttypid)
 {
     virtdb::interface::pb::Field ret;
     ret.set_name(name);
-    ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::STRING);
+    switch (atttypid)
+    {
+        case VARCHAROID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::STRING);
+            break;
+        case INT4OID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::INT32);
+            break;
+        case INT8OID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::INT64);
+            break;
+        case FLOAT8OID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DOUBLE);
+            break;
+        case FLOAT4OID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::FLOAT);
+            break;
+        case NUMERICOID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::NUMERIC);
+            break;
+        case DATEOID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DATE);
+            break;
+        case TIMESTAMPOID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DATETIME);
+            break;
+        case TIMEOID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::TIME);
+            break;
+        default:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::STRING);
+            break;
+    }
     return ret;
 }
 
@@ -331,7 +363,7 @@ cbBeginForeignScan( ForeignScanState *node,
         foreach(l, node->ss.ps.plan->qual)
         {
             Expr* clause = (Expr*) lfirst(l);
-            // query_data.add_filter( filterChain->apply(clause, meta) ); // TODO get back ASAP
+            query_data.add_filter( filterChain->apply(clause, meta) );
         }
 
         // Limit
@@ -361,7 +393,7 @@ cbBeginForeignScan( ForeignScanState *node,
     }
     catch(const std::exception & e)
     {
-        elog(ERROR, "[%s:%d] internal error in %s: %s",__FILE__,__LINE__,__func__,e.what());
+        LOG_ERROR("Internal error" << E_(e));
     }
 }
 
@@ -453,6 +485,19 @@ cbIterateForeignScan(ForeignScanState *node)
                         }
                         break;
                     }
+                    case TIMESTAMPOID: {
+                        const auto * data = handler->get<std::string>(column_id);
+                        if (data != nullptr)
+                        {
+                            slot->tts_values[column_id] =
+                                DirectFunctionCall3( timestamp_in,
+                                    CStringGetDatum(data->c_str()),
+                                    ObjectIdGetDatum(InvalidOid),
+                                    Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
+                            slot->tts_isnull[column_id] = false;
+                        }
+                        break;
+                    }
                     case TIMEOID: {
                         const auto * data = handler->get<std::string>(column_id);
                         if (data != nullptr)
@@ -475,8 +520,7 @@ cbIterateForeignScan(ForeignScanState *node)
         // catch(const std::logic_error & e)
         catch(const std::exception& e)
         {
-            LOG_ERROR("Internal err." << E_(e));
-            // elog(ERROR, "[%s:%d] internal error in %s: %s",__FILE__,__LINE__,__func__, e.what());
+            LOG_ERROR("Internal error" << E_(e));
         }
         return slot;
     }
@@ -595,7 +639,7 @@ Datum virtdb_fdw_validator_cpp(PG_FUNCTION_ARGS)
         std::string option_name = def->defname;
         if (!is_valid_option(option_name, catalog))
         {
-            elog(ERROR, "[%s] - Invalid option: %s", __func__, option_name.c_str());
+            LOG_ERROR("Invalid option." << V_(option_name));
         }
         elog(LOG, "Option name: %s", option_name.c_str());
         if (option_name == "url")

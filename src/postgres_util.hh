@@ -1,5 +1,7 @@
 #pragma once
 
+#include <logger.hh>
+
 extern "C" {
     #include <nodes/primnodes.h>
     #include <optimizer/clauses.h>
@@ -43,7 +45,7 @@ const Var* get_variable(const Expr* expr)
                 return reinterpret_cast<const Var*>(null_test->arg);
             }
         default:
-            elog(ERROR, "Unhandled node type in get_variable: %d", expr->type);
+            LOG_ERROR( "Unhandled node type in get_variable" << V_((long)(expr->type)));
     }
 }
 
