@@ -1,10 +1,10 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wold-style-cast"
 
-#include "expression.hh"
-#include "query.hh"
-#include "receiver_thread.hh"
-#include "data_handler.hh"
+#include <engine/expression.hh>
+#include <engine/query.hh>
+#include <engine/receiver_thread.hh>
+#include <engine/data_handler.hh>
 #include "virtdb_fdw.h" // pulls in some postgres headers
 #include "postgres_util.hh"
 
@@ -19,6 +19,7 @@ extern "C" {
     #include <utils/rel.h>
     #include <utils/builtins.h>
     #include <utils/date.h>
+    #include <utils/timestamp.h>
     #include <utils/syscache.h>
     #include <optimizer/pathnode.h>
     #include <optimizer/planmain.h>
@@ -63,8 +64,6 @@ extern "C" {
 using namespace virtdb;
 using namespace virtdb::connector;
 
-zmq::context_t* zmq_context = new zmq::context_t(1);
-
 endpoint_client* ep_client;
 log_record_client* log_client;
 
@@ -73,12 +72,42 @@ namespace virtdb_fdw_priv {
 struct provider {
     std::string name = "";
     receiver_thread* worker_thread = nullptr;
-    std::string query_address;
-    std::string data_address;
+    push_client<virtdb::interface::pb::Query>* query_push_client = nullptr;
+    sub_client<virtdb::interface::pb::Column>* column_sub_client = nullptr;
 };
 
 provider* current_provider;
 std::map<std::string, provider> providers;
+
+std::string getOption(const std::string& option_name, List* list)
+{
+    ListCell *cell;
+    foreach(cell, list)
+    {
+        DefElem *def = (DefElem *) lfirst(cell);
+        std::string current_option_name = def->defname;
+        if (current_option_name == option_name)
+        {
+            return defGetString(def);
+        }
+    }
+    return "";
+}
+
+std::string getTableOption(const std::string& option_name, Oid foreigntableid)
+{
+    auto table = GetForeignTable(foreigntableid);
+    return getOption(option_name, table->options);
+}
+
+std::string getFDWOption(const std::string& option_name, Oid foreigntableid)
+{
+    auto table = GetForeignTable(foreigntableid);
+    ListCell *cell;
+    auto server = GetForeignServer(table->serverid);
+    auto fdw = GetForeignDataWrapper(server->fdwid);
+    return getOption(option_name, fdw->options);
+}
 
 // We dont't do anything here right now, it is intended only for optimizations.
 static void
@@ -88,80 +117,88 @@ cbGetForeignRelSize( PlannerInfo *root,
 {
     try
     {
-        auto table = GetForeignTable(foreigntableid);
-        ListCell *cell;
-        foreach(cell, table->options)
-        {
-            DefElem *def = (DefElem *) lfirst(cell);
-            std::string option_name = def->defname;
-            if (option_name == "provider")
-            {
-                current_provider = &providers[defGetString(def)];
-            }
-        }
+        uint64_t timeout = 10000;
+        std::string name = getTableOption("provider", foreigntableid);
+        current_provider = &providers[name];
+        current_provider->name = name;
 
         if (current_provider && current_provider->worker_thread == nullptr)
         {
-            current_provider->worker_thread = new receiver_thread(zmq_context);
-            auto thread = new std::thread(&receiver_thread::run, current_provider->worker_thread);
-            thread->detach();
+            current_provider->worker_thread = new receiver_thread();
         }
 
-        if (ep_client == nullptr || log_client == nullptr)
+
+        if (ep_client == nullptr)
         {
-            std::string config_server_url = "";
-            auto server = GetForeignServer(table->serverid);
-            auto fdw = GetForeignDataWrapper(server->fdwid);
-            foreach(cell, fdw->options)
-            {
-                DefElem *def = (DefElem *) lfirst(cell);
-                std::string option_name = def->defname;
-                if (option_name == "url")
-                {
-                    config_server_url = defGetString(def);
-                }
-            }
+            std::string config_server_url = getFDWOption("url", foreigntableid);
             elog(LOG, "Config server url: %s", config_server_url.c_str());
             if (config_server_url != "")
             {
-                ep_client = new endpoint_client(config_server_url, "generic_fdw");
-                log_client = new log_record_client(*ep_client, "diag-service");
-
-                LOG_TRACE("ForeignDataWrapper is being initialized.");
-                ep_client->watch(virtdb::interface::pb::ServiceType::QUERY,
-                                [](const virtdb::interface::pb::EndpointData & ep) {
-                                    LOG_TRACE("Endpoint watch got QUERY endpoint with name" << V_(ep.name()));
-                                    for (auto connection : ep.connections())
-                                    {
-                                        for (auto address : connection.address())
-                                        {
-                                            LOG_TRACE("Address to QUERY endpoint"<<V_(ep.name()) << V_(address));
-                                            providers[ep.name()].worker_thread->set_query_url(address);
-                                        }
-                                    }
-                                    return true;
-                                });
-
-                ep_client->watch(virtdb::interface::pb::ServiceType::COLUMN,
-                                [](const virtdb::interface::pb::EndpointData & ep) {
-                                    LOG_TRACE("Endpoint watch got COLUMN endpoint with name" << V_(ep.name()));
-                                    for (auto connection : ep.connections())
-                                    {
-                                        for (auto address : connection.address())
-                                        {
-                                            LOG_TRACE("Address to COLUMN endpoint"<<V_(ep.name()) << V_(address));
-                                            providers[ep.name()].worker_thread->set_data_url(address);
-                                        }
-                                    }
-                                    return true;
-                                });
-
+                ep_client = new endpoint_client(config_server_url,
+                                                "postgres_generic_fdw",
+                                                5,     // retry count on 0MQ exception
+                                                false  // shall kill the process by re-throwing?
+                                                );
             }
         }
+
+        if (log_client == nullptr)
+        {
+            log_client = new log_record_client(*ep_client,
+                                               "diag-service",
+                                               5,     // retry count on 0MQ exception
+                                               false  // shall kill the process by re-throwing?
+                                               );
+
+            if( !log_client->wait_valid_push(timeout) )
+            {
+                LOG_ERROR("failed to connect log client" <<
+                          V_(ep_client->name()) <<
+                          V_(ep_client->service_ep()) <<
+                          V_(timeout));
+
+                THROW_("failed to connect log client");
+            }
+
+        }
+
+        current_provider->query_push_client =
+            new push_client<virtdb::interface::pb::Query>(*ep_client, current_provider->name);
+
+        if( !current_provider->query_push_client->wait_valid(timeout) )
+        {
+            LOG_ERROR("failed to connect query client" <<
+                   V_(ep_client->name()) <<
+                   V_(current_provider->name) <<
+                   V_(timeout));
+
+            THROW_("failed to connect query client");
+        }
+
+        current_provider->column_sub_client =
+            new sub_client<virtdb::interface::pb::Column>(*ep_client,
+                                                          current_provider->name,
+                                                          5,     // retry count on 0MQ exception
+                                                          false  // shall kill the process by re-throwing?
+                                                          );
+
+        if( !current_provider->column_sub_client->wait_valid(timeout) )
+        {
+            LOG_ERROR("failed to connect column client" <<
+                      V_(ep_client->name()) <<
+                      V_(current_provider->name) <<
+                      V_(timeout));
+
+            THROW_("failed to connect column client");
+        }
+
+        ep_client->rethrow_error();
+        log_client->rethrow_error();
+        current_provider->column_sub_client->rethrow_error();
     }
     catch(const std::exception & e)
     {
-        elog(ERROR, "[%s:%d] internal error in %s: %s",__FILE__,__LINE__,__func__,e.what());
+        LOG_ERROR("Internal error." << E_(e));
     }
 
 }
@@ -236,6 +273,46 @@ static ForeignScan
     return ret;
 }
 
+virtdb::interface::pb::Field getField(const std::string& name, Oid atttypid)
+{
+    virtdb::interface::pb::Field ret;
+    ret.set_name(name);
+    switch (atttypid)
+    {
+        case VARCHAROID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::STRING);
+            break;
+        case INT4OID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::INT32);
+            break;
+        case INT8OID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::INT64);
+            break;
+        case FLOAT8OID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DOUBLE);
+            break;
+        case FLOAT4OID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::FLOAT);
+            break;
+        case NUMERICOID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::NUMERIC);
+            break;
+        case DATEOID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DATE);
+            break;
+        case TIMESTAMPOID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DATETIME);
+            break;
+        case TIMEOID:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::TIME);
+            break;
+        default:
+            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::STRING);
+            break;
+    }
+    return ret;
+}
+
 static void
 cbBeginForeignScan( ForeignScanState *node,
                     int eflags )
@@ -275,7 +352,9 @@ cbBeginForeignScan( ForeignScanState *node,
             if (variable != nullptr)
             {
                 // elog(LOG, "Column: %s (%d)", meta->tupdesc->attrs[variable->varattno-1]->attname.data, variable->varattno-1);
-                query_data.add_column( variable->varattno-1, meta->tupdesc->attrs[variable->varattno-1]->attname.data );
+                query_data.add_column( static_cast<virtdb::column_id_t>(variable->varattno-1),
+                    getField(meta->tupdesc->attrs[variable->varattno-1]->attname.data,
+                            meta->tupdesc->attrs[variable->varattno-1]->atttypid));
             }
             cell = cell->next;
         }
@@ -299,19 +378,22 @@ cbBeginForeignScan( ForeignScanState *node,
         }
 
         // Schema
+        auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
+        query_data.set_schema(getTableOption("schema", foreign_table_id));
 
         // UserToken
 
         // AccessInfo
 
         // Prepare for getting data
-        LOG_TRACE("Before add_query");
-        current_provider->worker_thread->send_query(node, query_data);
-        LOG_TRACE("After add_query");
+        current_provider->worker_thread->send_query(*current_provider->query_push_client,
+                                                    *current_provider->column_sub_client,
+                                                    reinterpret_cast<long>(node),
+                                                    query_data);
     }
     catch(const std::exception & e)
     {
-        elog(ERROR, "[%s:%d] internal error in %s: %s",__FILE__,__LINE__,__func__,e.what());
+        LOG_ERROR("Internal error" << E_(e));
     }
 }
 
@@ -319,94 +401,126 @@ static TupleTableSlot *
 cbIterateForeignScan(ForeignScanState *node)
 {
     struct AttInMetadata * meta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
-    data_handler* handler = current_provider->worker_thread->get_data_handler(node);
-    if (!handler->received_data())
-    {
-        current_provider->worker_thread->wait_for_data(node);
-    }
-    if (handler->has_data())
+    data_handler* handler = current_provider->worker_thread->get_data_handler(reinterpret_cast<long>(node));
+    if (handler->read_next())
     {
         TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
         ExecClearTuple(slot);
         try
         {
-            handler->read_next();
-
             for (int column_id : handler->column_ids())
             {
-                if (handler->is_null(column_id))
+                slot->tts_isnull[column_id] = true;
+                switch( meta->tupdesc->attrs[column_id]->atttypid )
                 {
-                    slot->tts_isnull[column_id] = true;
-                }
-                else
-                {
-                    slot->tts_isnull[column_id] = false;
-                    switch( meta->tupdesc->attrs[column_id]->atttypid )
-                    {
-                        case VARCHAROID: {
-                            const std::string* const data = handler->get<std::string>(column_id);
+                    case VARCHAROID: {
+                        const auto * data = handler->get<std::string>(column_id);
+                        if (data != nullptr)
+                        {
                             bytea *vcdata = reinterpret_cast<bytea *>(palloc(data->size() + VARHDRSZ));
                             ::memcpy( VARDATA(vcdata), data->c_str(), data->size() );
                             SET_VARSIZE(vcdata, data->size() + VARHDRSZ);
                             slot->tts_values[column_id] = PointerGetDatum(vcdata);
-                            break;
+                            slot->tts_isnull[column_id] = false;
                         }
-                        case INT4OID: {
-                            const int32_t* const data = handler->get<int32_t>(column_id);
+                        break;
+                    }
+                    case INT4OID: {
+                        const auto * data = handler->get<int32_t>(column_id);
+                        if (data != nullptr)
+                        {
                             slot->tts_values[column_id] = Int32GetDatum(*data);
-                            break;
+                            slot->tts_isnull[column_id] = false;
                         }
-                        case INT8OID: {
-                            const int64_t* const data = handler->get<int64_t>(column_id);
+                        break;
+                    }
+                    case INT8OID: {
+                        const auto * data = handler->get<int64_t>(column_id);
+                        if (data != nullptr)
+                        {
                             slot->tts_values[column_id] = Int64GetDatum(*data);
-                            break;
+                            slot->tts_isnull[column_id] = false;
                         }
-                        case FLOAT8OID:  {
-                            const double* const data = handler->get<double>(column_id);
+                        break;
+                    }
+                    case FLOAT8OID:  {
+                        const auto * data = handler->get<double>(column_id);
+                        if (data != nullptr)
+                        {
                             slot->tts_values[column_id] = Float8GetDatum(*data);
-                            break;
+                            slot->tts_isnull[column_id] = false;
                         }
-                        case FLOAT4OID:  {
-                            const float* const data = handler->get<float>(column_id);
+                        break;
+                    }
+                    case FLOAT4OID:  {
+                        const auto *  data = handler->get<float>(column_id);
+                        if (data != nullptr)
+                        {
                             slot->tts_values[column_id] = Float4GetDatum(*data);
-                            break;
+                            slot->tts_isnull[column_id] = false;
                         }
-                        case NUMERICOID: {
-                            const std::string* const data = handler->get<std::string>(column_id);
+                        break;
+                    }
+                    case NUMERICOID: {
+                        const auto * data = handler->get<std::string>(column_id);
+                        if (data != nullptr)
+                        {
                             slot->tts_values[column_id] =
                                 DirectFunctionCall3( numeric_in,
                                     CStringGetDatum(data->c_str()),
                                     ObjectIdGetDatum(InvalidOid),
                                     Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
-                            break;
+                            slot->tts_isnull[column_id] = false;
                         }
-                        case DATEOID: {
-                            const std::string* const data = handler->get<std::string>(column_id);
+                        break;
+                    }
+                    case DATEOID: {
+                        const auto * data = handler->get<std::string>(column_id);
+                        if (data != nullptr)
+                        {
                             slot->tts_values[column_id] =
                                 DirectFunctionCall1( date_in,
                                     CStringGetDatum(data->c_str()));
-                            break;
+                            slot->tts_isnull[column_id] = false;
                         }
-                        case TIMEOID: {
-                            const std::string* const data = handler->get<std::string>(column_id);
+                        break;
+                    }
+                    case TIMESTAMPOID: {
+                        const auto * data = handler->get<std::string>(column_id);
+                        if (data != nullptr)
+                        {
+                            slot->tts_values[column_id] =
+                                DirectFunctionCall3( timestamp_in,
+                                    CStringGetDatum(data->c_str()),
+                                    ObjectIdGetDatum(InvalidOid),
+                                    Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
+                            slot->tts_isnull[column_id] = false;
+                        }
+                        break;
+                    }
+                    case TIMEOID: {
+                        const auto * data = handler->get<std::string>(column_id);
+                        if (data != nullptr)
+                        {
                             slot->tts_values[column_id] =
                                 DirectFunctionCall1( time_in,
                                     CStringGetDatum(data->c_str()));
-                            break;
+                            slot->tts_isnull[column_id] = false;
                         }
-                        default: {
-                            LOG_ERROR("Unhandled attribute type: " << V_(meta->tupdesc->attrs[column_id]->atttypid));
-                            slot->tts_isnull[column_id] = true;
-                            break;
-                        }
+                        break;
+                    }
+                    default: {
+                        LOG_ERROR("Unhandled attribute type: " << V_(meta->tupdesc->attrs[column_id]->atttypid));
+                        break;
                     }
                 }
             }
             ExecStoreVirtualTuple(slot);
         }
-        catch(const std::logic_error & e)
+        // catch(const std::logic_error & e)
+        catch(const std::exception& e)
         {
-            elog(ERROR, "[%s:%d] internal error in %s: %s",__FILE__,__LINE__,__func__, e.what());
+            LOG_ERROR("Internal error" << E_(e));
         }
         return slot;
     }
@@ -426,7 +540,7 @@ cbReScanForeignScan( ForeignScanState *node )
 static void
 cbEndForeignScan(ForeignScanState *node)
 {
-    current_provider->worker_thread->remove_query(node);
+    current_provider->worker_thread->remove_query(*current_provider->column_sub_client, reinterpret_cast<long>(node));
 }
 
 }
@@ -440,8 +554,6 @@ void PG_init_virtdb_fdw_cpp(void)
 
 void PG_fini_virtdb_fdw_cpp(void)
 {
-    // delete zmq_context;
-    // current_provider->worker_thread->stop();
     // delete current_provider->worker_thread;
     // delete log_client;
     // delete ep_client;
@@ -466,6 +578,7 @@ static struct fdwOption valid_options[] =
 	/* Connection options */
 	{ "url",  ForeignDataWrapperRelationId },
     { "provider", ForeignTableRelationId },
+    { "schema", ForeignTableRelationId },
 
 	/* Sentinel */
 	{ "",	InvalidOid }
@@ -526,7 +639,7 @@ Datum virtdb_fdw_validator_cpp(PG_FUNCTION_ARGS)
         std::string option_name = def->defname;
         if (!is_valid_option(option_name, catalog))
         {
-            elog(ERROR, "[%s] - Invalid option: %s", __func__, option_name.c_str());
+            LOG_ERROR("Invalid option." << V_(option_name));
         }
         elog(LOG, "Option name: %s", option_name.c_str());
         if (option_name == "url")
