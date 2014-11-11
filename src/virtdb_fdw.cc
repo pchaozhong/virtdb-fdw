@@ -63,6 +63,7 @@ extern "C" {
 
 using namespace virtdb;
 using namespace virtdb::connector;
+using namespace virtdb::engine;
 
 endpoint_client* ep_client;
 log_record_client* log_client;
@@ -328,7 +329,7 @@ cbBeginForeignScan( ForeignScanState *node,
     filterChain->add(new default_filter());
     try
     {
-        virtdb::query query_data;
+        virtdb::engine::query query_data;
 
         // Table name
         std::string table_name{RelationGetRelationName(node->ss.ss_currentRelation)};
@@ -352,7 +353,7 @@ cbBeginForeignScan( ForeignScanState *node,
             if (variable != nullptr)
             {
                 // elog(LOG, "Column: %s (%d)", meta->tupdesc->attrs[variable->varattno-1]->attname.data, variable->varattno-1);
-                query_data.add_column( static_cast<virtdb::column_id_t>(variable->varattno-1),
+                query_data.add_column( static_cast<engine::column_id_t>(variable->varattno-1),
                     getField(meta->tupdesc->attrs[variable->varattno-1]->attname.data,
                             meta->tupdesc->attrs[variable->varattno-1]->atttypid));
             }

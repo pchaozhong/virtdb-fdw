@@ -3,6 +3,7 @@ EXTVERSION := $(shell grep default_version $(EXTENSION).control | sed -e "s/defa
 
 all: $(EXTENSION)--$(EXTVERSION).sql common-build-all
 
+UNAME_S := $(shell uname -s)
 BUILD_ROOT := $(shell pwd)
 include ./fdw.mk
 

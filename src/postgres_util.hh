@@ -45,7 +45,7 @@ const Var* get_variable(const Expr* expr)
                 return reinterpret_cast<const Var*>(null_test->arg);
             }
         default:
-            LOG_ERROR( "Unhandled node type in get_variable" << V_((long)(expr->type)));
+            LOG_ERROR( "Unhandled node type in get_variable" << V_((int64_t)(expr->type)));
     }
 }
 

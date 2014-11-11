@@ -7,7 +7,7 @@ namespace virtdb {
 class default_filter : public filter
 {
 public:
-  virtual std::shared_ptr<expression> apply(const Expr* clause, const AttInMetadata* meta) override
+  virtual std::shared_ptr<engine::expression> apply(const Expr* clause, const AttInMetadata* meta) override
   {
     // Do not pass limit argument if we can't handle any of the where conditions
     // as in that case data provider would return the limited amount of not well filtered results

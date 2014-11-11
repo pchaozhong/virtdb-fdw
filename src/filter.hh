@@ -32,7 +32,7 @@ public:
     head = this;
     add(new_filter, this);
   }
-  virtual std::shared_ptr<expression> apply(const Expr* clause, const AttInMetadata* meta)
+  virtual std::shared_ptr<engine::expression> apply(const Expr* clause, const AttInMetadata* meta)
   {
     if (next)
     {

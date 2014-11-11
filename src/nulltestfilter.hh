@@ -7,8 +7,10 @@ namespace virtdb {
 class nulltest_filter : public filter
 {
 public:
-    virtual std::shared_ptr<expression> apply(const Expr* clause, const AttInMetadata* meta) override
+    virtual std::shared_ptr<engine::expression> apply(const Expr* clause, const AttInMetadata* meta) override
     {
+        using virtdb::engine::expression;
+
         if (!(IsA(clause, NullTest)))
         {
             return filter::apply(clause, meta);

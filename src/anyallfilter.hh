@@ -7,7 +7,7 @@ namespace virtdb {
 class any_all_filter : public filter
 {
 public:
-    virtual std::shared_ptr<expression>  apply(const Expr* clause, const AttInMetadata* meta) override
+    virtual std::shared_ptr<engine::expression>  apply(const Expr* clause, const AttInMetadata* meta) override
     {
         return filter::apply(clause, meta);
 
