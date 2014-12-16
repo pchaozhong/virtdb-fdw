@@ -4,6 +4,9 @@
 ZMQ_LDFLAGS  := $(shell pkg-config --libs libzmq)
 ZMQ_CFLAGS   := $(shell pkg-config --cflags libzmq) -I$(BUILD_ROOT)/common/cppzmq
 
+SODIUM_LDFLAGS  := $(shell pkg-config --libs libsodium)
+SODIUM_CFLAGS   := $(shell pkg-config --cflags libsodium) 
+
 PROTOBUF_LDFLAGS  := $(shell pkg-config --libs protobuf)
 PROTOBUF_CFLAGS   := $(shell pkg-config --cflags protobuf)
 PROTOBUF_PATH     := $(BUILD_ROOT)/common/proto/
@@ -36,6 +39,6 @@ MAC_CFLAGS := -DCOMMON_MAC_BUILD
 endif
 
 CFLAGS    += $(MAC_CFLAGS)
-CXXFLAGS  += -std=c++11 -fPIC $(FIX_CXX_11_BUG) $(LINUX_LDFLAGS) $(COMMON_CFLAGS) $(MAC_CFLAGS) $(PROTOBUF_CFLAGS) $(ZMQ_CFLAGS) $(CPPFLAGS) -g3
-LDFLAGS   += $(FIX_CXX_11_BUG) $(LINUX_LDFLAGS) $(COMMON_LDFLAGS) $(PROTOBUF_LDFLAGS) $(ZMQ_LDFLAGS) -g3
+CXXFLAGS  += -std=c++11 -fPIC $(FIX_CXX_11_BUG) $(LINUX_LDFLAGS) $(COMMON_CFLAGS) $(MAC_CFLAGS) $(PROTOBUF_CFLAGS) $(ZMQ_CFLAGS) $(SODIUM_CFLAGS) $(CPPFLAGS) -g3
+LDFLAGS   += $(FIX_CXX_11_BUG) $(LINUX_LDFLAGS) $(COMMON_LDFLAGS) $(PROTOBUF_LDFLAGS) $(ZMQ_LDFLAGS) $(SODIUM_LDFLAGS) -g3
 
