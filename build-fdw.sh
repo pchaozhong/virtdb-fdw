@@ -4,6 +4,7 @@ if [ "X" == "X$GITHUB_USER" ]; then echo "Need GITHUB_USER environment variable"
 if [ "X" == "X$GITHUB_PASSWORD" ]; then echo "Need GITHUB_PASSWORD environment variable"; exit 10; fi
 if [ "X" == "X$GITHUB_EMAIL" ]; then echo "Need GITHUB_EMAIL environment variable"; exit 10; fi
 if [ "X" == "X$HOME" ]; then echo "Need HOME environment variable"; exit 10; fi
+if [ "X" == "X$BUILDNO" ]; then echo "Need BUILDNO environment variable"; exit 10; fi
 
 cd $HOME
 
@@ -26,64 +27,22 @@ git config --global user.email $GITHUB_EMAIL
 
 cd virtdb-fdw
 make
+if [ $? -ne 0 ]; then echo "Failed to make FDW"; exit 10; fi
 
-exit 10
+git tag -f $BUILDNO
+if [ $? -ne 0 ]; then echo "Failed to tag repo"; exit 10; fi
+git push origin $BUILDNO
+if [ $? -ne 0 ]; then echo "Failed to push tag to repo."; exit 10; fi
 
-# -- make sure we have proto module built for us --
-pushd src/common/proto
-gyp --depth=. proto.gyp
-make
-if [ $? -ne 0 ]; then echo "Failed to make proto"; exit 10; fi
+VERSION=`echo $BUILDNO | sed s,v,,g`
+RELEASE_PATH="$HOME/build-result/virtdb-fdw-$VERSION"
+
+cp -f virtdb_fdw.so $RELEASE_PATH/
+cp -f src/virtdb_fdw.control $RELEASE_PATH/
+cp -f src/virtdb_fdw--1.0.0.sql $RELEASE_PATH/
+
+pushd $RELEASE_PATH/..
+tar cvfj virtdb-fdw-${VERSION}.tbz virtdb-fdw-$VERSION 
+rm -Rf virtdb-fdw-$VERSION
 popd
-
-# -- figure out the next release number --
-function release {
-  echo "release"
-  pushd $GPCONFIG_PATH
-  VERSION=`npm version patch`
-  git add package.json
-  if [ $? -ne 0 ]; then echo "Failed to add package.json to patch"; exit 10; fi
-  git commit -m "Increased version number to $VERSION"
-  if [ $? -ne 0 ]; then echo "Failed to commit patch"; exit 10; fi
-  git push
-  if [ $? -ne 0 ]; then echo "Failed to push to repo."; exit 10; fi
-  git tag -f $VERSION
-  if [ $? -ne 0 ]; then echo "Failed to tag repo"; exit 10; fi
-  git push origin $VERSION
-  if [ $? -ne 0 ]; then echo "Failed to push tag to repo."; exit 10; fi
-  popd
-  RELEASE_PATH="$HOME/build-result/virtdb-dbconfig-$VERSION"
-  mkdir -p $RELEASE_PATH
-  cp -R $GPCONFIG_PATH/* $RELEASE_PATH
-  mkdir -p $RELEASE_PATH/lib
-  pushd $RELEASE_PATH/..
-  tar cvfj gpconfig-${VERSION}.tbz virtdb-dbconfig-$VERSION 
-  rm -Rf virtdb-dbconfig-$VERSION
-  popd
-  echo $VERSION > version
-}
-
-[[ ${1,,} == "release" ]] && RELEASE=true || RELEASE=false
-
-echo "Building node-connector"
-pushd $NODE_CONNECTOR_PATH
-npm install
-node_modules/gulp/bin/gulp.js build
-popd
-
-echo "Building greenplum-config"
-pushd $GPCONFIG_PATH
-npm install
-if [ $? -ne 0 ]; then echo "npm install"; exit 10; fi
-echo "Node connector:"
-if [ ! -e ../common/node-connector ] ; then echo "../common/node-connector doesn't exist"; exit 10; fi
-ls ../common/node-connector
-npm install ../common/node-connector
-if [ $? -ne 0 ]; then echo "npm install ../common/node-connector failed"; exit 10; fi
-echo "virtdb-connector:"
-ls node_modules/virtdb-connector
-node_modules/gulp/bin/gulp.js build
-popd
-
-[[ $RELEASE == true ]] && release || echo "non-release"
 
