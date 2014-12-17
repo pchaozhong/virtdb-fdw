@@ -43,3 +43,6 @@ autom4te.cache
 
 # Atom.io symbol info
 tags
+
+# tmp build
+build-result/

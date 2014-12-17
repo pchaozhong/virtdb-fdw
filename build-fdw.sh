@@ -34,7 +34,7 @@ if [ $? -ne 0 ]; then echo "Failed to tag repo"; exit 10; fi
 git push origin $BUILDNO
 if [ $? -ne 0 ]; then echo "Failed to push tag to repo."; exit 10; fi
 
-VERSION=`echo $BUILDNO | sed s,v,,g`
+VERSION=$BUILDNO 
 RELEASE_PATH="$HOME/build-result/virtdb-fdw-$VERSION"
 mkdir -p $RELEASE_PATH
 
