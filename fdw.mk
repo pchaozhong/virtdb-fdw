@@ -4,8 +4,8 @@
 ZMQ_LDFLAGS  := $(shell pkg-config --libs libzmq)
 ZMQ_CFLAGS   := $(shell pkg-config --cflags libzmq) -I$(BUILD_ROOT)/common/cppzmq
 
-SODIUM_LDFLAGS  := $(shell pkg-config --libs libsodium)
-SODIUM_CFLAGS   := $(shell pkg-config --cflags libsodium) 
+SODIUM_LDFLAGS  := $(shell pkg-config --libs libsodium) -lsodium -L$(HOME)/libsodium-install/lib
+SODIUM_CFLAGS   := $(shell pkg-config --cflags libsodium) -I$(HOME)/libsodium-install/include
 
 PROTOBUF_LDFLAGS  := $(shell pkg-config --libs protobuf)
 PROTOBUF_CFLAGS   := $(shell pkg-config --cflags protobuf)
