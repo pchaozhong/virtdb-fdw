@@ -42,6 +42,8 @@ cp -f virtdb_fdw.so $RELEASE_PATH/
 cp -f src/virtdb_fdw.control $RELEASE_PATH/
 cp -f src/virtdb_fdw--1.0.0.sql $RELEASE_PATH/
 
+ldd virtdb_fdw.so
+
 pushd $RELEASE_PATH/..
 tar cvfj virtdb-fdw-${VERSION}.tbz virtdb-fdw-$VERSION 
 rm -Rf virtdb-fdw-$VERSION
