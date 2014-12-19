@@ -31,6 +31,7 @@ LINUX_LDFLAGS :=
 ifeq ($(shell uname), Linux)
 FIX_CXX_11_BUG :=  -Wl,--no-as-needed
 LINUX_LDFLAGS :=  -pthread
+SODIUM_LDFLAGS  += -lrt
 endif
 
 MAC_CFLAGS :=
