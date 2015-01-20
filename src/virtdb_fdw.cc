@@ -135,21 +135,13 @@ cbGetForeignRelSize( PlannerInfo *root,
             elog(LOG, "Config server url: %s", config_server_url.c_str());
             if (config_server_url != "")
             {
-                ep_client = new endpoint_client(config_server_url,
-                                                "postgres_generic_fdw",
-                                                5,     // retry count on 0MQ exception
-                                                false  // shall kill the process by re-throwing?
-                                                );
+                ep_client = new endpoint_client(config_server_url, "postgres_generic_fdw");
             }
         }
 
         if (log_client == nullptr)
         {
-            log_client = new log_record_client(*ep_client,
-                                               "diag-service",
-                                               5,     // retry count on 0MQ exception
-                                               false  // shall kill the process by re-throwing?
-                                               );
+            log_client = new log_record_client(*ep_client, "diag-service");
 
             if( !log_client->wait_valid_push(timeout) )
             {
