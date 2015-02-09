@@ -55,7 +55,7 @@ test-build-clean:
 	make -C test/ clean
 
 common-build-all:
-	cd $(BUILD_ROOT)/common; make -f common.mk all
+	cd $(BUILD_ROOT)/common; make -f common.mk all RELEASE=1
 
 $(PROTOBUF_HEADERS): $(PROTOBUF_PROTOS)
 	cd $(BUILD_ROOT)/common; make -f common.mk all
