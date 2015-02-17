@@ -22,11 +22,16 @@ EXTRA_CLEAN := $(EXTENSION)--$(EXTVERSION).sql \
 PG_CONFIG ?= $(shell which pg_config)
 ifeq ($(PG_CONFIG), )
 $(info $$PG_CONFIG is [${PG_CONFIG}])
-PG_CONFIG = $(shell which /usr/local/pgsql/bin/pg_config)
+PG_CONFIG = $(shell which pg_config)
 endif
 
 COMMON_LIB := $(BUILD_ROOT)/common/libcommon.a
 PROTO_LIB := $(BUILD_ROOT)/common/proto/libproto.a
+
+ifeq ($(PG_CONFIG), )
+$(info $$PG_CONFIG is [${PG_CONFIG}])
+$(error need pg_config executable to build the foreign data wrapper. please pass its location on the PG_CONFIG variable or make sure it can be found in the PATH)
+endif
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 PG_CPPFLAGS := $(ZMQ_CFLAGS) $(PROTOBUF_CFLAGS) $(SODIUM_CFLAGS)
