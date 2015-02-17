@@ -43,10 +43,15 @@ CXX ?= g++
 
 $(COMMON_LIB) $(PROTO_LIB): $(PROTOBUF_HEADERS)
 
+ifeq ($(RELEASE), 1)
+LDFLAGS += $(PG_LIBS) -O3
+OLDCFLAGS := $(CFLAGS:-O2=-O3)
+override CFLAGS := $(OLDCFLAGS) -O3
+else
 LDFLAGS += $(PG_LIBS) -g3
-
 OLDCFLAGS := $(CFLAGS:-O2=-O0)
 override CFLAGS := $(OLDCFLAGS) -g3
+endif
 
 $(info $$CFLAGS is [${CFLAGS}])
 $(info $$LDFLAGS is [${LDFLAGS}])
