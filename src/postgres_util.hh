@@ -27,7 +27,7 @@ const Var* get_variable(const Expr* expr)
             }
         case T_RelabelType:
             {
-                const RelabelType * rl = reinterpret_cast<const RelabelType*>(expr);
+                const RelabelType* rl = reinterpret_cast<const RelabelType*>(expr);
                 return reinterpret_cast<const Var*>(rl->arg);
             }
         case T_Var:
@@ -41,11 +41,19 @@ const Var* get_variable(const Expr* expr)
             }
         case T_NullTest:
             {
-                const NullTest * null_test = reinterpret_cast<const NullTest*>(expr);
+                const NullTest* null_test = reinterpret_cast<const NullTest*>(expr);
                 return reinterpret_cast<const Var*>(null_test->arg);
             }
+        case T_FuncExpr:
+            {
+                const FuncExpr*  func_expr = reinterpret_cast<const FuncExpr*>(expr);
+                return get_variable(reinterpret_cast<const Expr*>(linitial(func_expr->args)));
+            }
         default:
+        {
             LOG_ERROR( "Unhandled node type in get_variable" << V_((int64_t)(expr->type)));
+            return nullptr;
+        }
     }
 }
 
