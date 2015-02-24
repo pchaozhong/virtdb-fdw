@@ -352,27 +352,25 @@ cbBeginForeignScan( ForeignScanState *node,
         query_data.set_table_name( table_name );
 
         // Columns
-        int n = node->ss.ps.plan->targetlist->length;
-        ListCell* cell = node->ss.ps.plan->targetlist->head;
-        for (int i = 0; i < n; i++)
+        ListCell* cell;
+        foreach(cell, node->ss.ps.plan->targetlist)
         {
             if (!IsA(lfirst(cell), TargetEntry))
             {
                 continue;
             }
             Expr* expr = reinterpret_cast<Expr*> (lfirst(cell));
-            const Var* variable = get_variable(expr);
-            if (variable == nullptr)
+            std::vector<Var> variables = get_variables(expr);
+            if (variables.size() == 0)    
             {
                 elog_node_display(INFO, "expression: ", expr, true); 
             }    
-            if (variable != nullptr)
+            for (auto variable : variables)
             {
-                query_data.add_column( static_cast<engine::column_id_t>(variable->varattno-1),
-                    getField(meta->tupdesc->attrs[variable->varattno-1]->attname.data,
-                            meta->tupdesc->attrs[variable->varattno-1]->atttypid));
-            }
-            cell = cell->next;
+                query_data.add_column( static_cast<engine::column_id_t>(variable.varattno-1),
+                    getField(meta->tupdesc->attrs[variable.varattno-1]->attname.data,
+                            meta->tupdesc->attrs[variable.varattno-1]->atttypid));
+            }    
         }
 
         // Filters

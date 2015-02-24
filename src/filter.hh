@@ -53,11 +53,12 @@ protected:
   size_t get_filter_id(const Expr * clause) const
   {
     size_t filter_id = 9999999;
-    const Var * vp   = get_variable(clause);
+    std::vector<Var> variables = get_variables(clause);
 
-    if (vp && vp->varattno)
+    if (variables.size() > 0)
     {
-      filter_id       = vp->varattno-1;
+        // TODO multiple variables ???
+        filter_id = variables[0].varattno - 1;
     }
 
     return filter_id;
