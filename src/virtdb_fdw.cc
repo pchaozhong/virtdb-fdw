@@ -330,6 +330,7 @@ cbBeginForeignScan( ForeignScanState *node,
                     int eflags )
 {
     // elog_node_display(INFO, "node: ", node->ss.ps.plan, true);
+    LOG_INFO("Starting scan");
 
     ListCell   *l;
     struct AttInMetadata * meta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
@@ -361,9 +362,12 @@ cbBeginForeignScan( ForeignScanState *node,
             }
             Expr* expr = reinterpret_cast<Expr*> (lfirst(cell));
             const Var* variable = get_variable(expr);
+            if (variable == nullptr)
+            {
+                elog_node_display(INFO, "expression: ", expr, true); 
+            }    
             if (variable != nullptr)
             {
-                // elog(LOG, "Column: %s (%d)", meta->tupdesc->attrs[variable->varattno-1]->attname.data, variable->varattno-1);
                 query_data.add_column( static_cast<engine::column_id_t>(variable->varattno-1),
                     getField(meta->tupdesc->attrs[variable->varattno-1]->attname.data,
                             meta->tupdesc->attrs[variable->varattno-1]->atttypid));

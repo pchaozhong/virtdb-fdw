@@ -2,6 +2,7 @@
 
 #include "filter.hh"
 #include "postgres_util.hh"
+#include <logger.hh>
 
 namespace virtdb {
 
@@ -12,7 +13,7 @@ public:
     {
         using virtdb::engine::expression;
 
-        ereport(LOG, (errmsg("Checking in OPEXPR filter")));
+        LOG_TRACE("Checking in OPEXPR filter.");
         if (!(IsA(clause, OpExpr)))
         {
             return filter::apply(clause, meta);
@@ -21,8 +22,11 @@ public:
         {
             const OpExpr * oe = reinterpret_cast<const OpExpr*>(clause);
 
+            LOG_INFO("OpExpr casted.");
             size_t filter_id = get_filter_id(clause);
+            LOG_INFO("filter_id" << V_(filter_id));
             std::string filter_op = get_filter_op(oe->opno);
+            LOG_INFO("filter_op" << V_(filter_op));
             if (filter_op.empty())
             {
                 return NULL;
@@ -40,6 +44,7 @@ public:
                 filter_colname  = meta->tupdesc->attrs[filter_id]->attname.data;
             }
 
+            LOG_INFO("Colname determined" << P_(filter_colname));
             if( filter_colname && (!filter_op.empty()) )
             {
                 Node * rop = get_rightop(clause);
@@ -90,6 +95,16 @@ public:
                                 filter_val = tmpx;
                                 break;
                             }
+                            case TIMESTAMPOID:
+                            {
+                                char * tmpdate = DatumGetCString(DirectFunctionCall1( timestamp_out, cpv ));
+                                size_t j=0;
+                                for( size_t i=0;(i<11 && tmpdate[i]!=0);++i )
+                                if( tmpdate[i] >= '0' && tmpdate[i] <= '9' ) tmpx[j++] = tmpdate[i];
+                                tmpx[j] = 0;
+                                filter_val = tmpx;
+                                break;
+                            }    
                             default:
                             {
                                 ereport(LOG, (errmsg("\"%s\": OMIT claus expr: %s[%ld] %s %s  OID:%d not handled XXX",
@@ -100,6 +115,7 @@ public:
                     }
                 }
 
+                LOG_INFO("filter_id and filter_val determined" << P_(filter_val) << V_(filter_id));
                 if( filter_val && filter_id != 9999999 )
                 {
                     std::shared_ptr<expression> ret (new expression);

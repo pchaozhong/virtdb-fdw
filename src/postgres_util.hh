@@ -49,6 +49,11 @@ const Var* get_variable(const Expr* expr)
                 const FuncExpr*  func_expr = reinterpret_cast<const FuncExpr*>(expr);
                 return get_variable(reinterpret_cast<const Expr*>(linitial(func_expr->args)));
             }
+        case T_SubPlan:
+            {
+                const SubPlan* sub_plan = reinterpret_cast<const SubPlan*>(expr);
+                return get_variable(reinterpret_cast<const Expr*>(linitial(sub_plan->args)));
+            }    
         default:
         {
             LOG_ERROR( "Unhandled node type in get_variable" << V_((int64_t)(expr->type)));
