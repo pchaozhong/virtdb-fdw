@@ -343,12 +343,8 @@ cbBeginForeignScan( ForeignScanState *node,
         virtdb::engine::query query_data;
 
         // Table name
-        std::string table_name{RelationGetRelationName(node->ss.ss_currentRelation)};
-        for (auto& c: table_name)
-        {
-            c = ::toupper(c);
-        }
-        query_data.set_table_name( table_name );
+        auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
+        query_data.set_table_name(getTableOption("remotename", foreign_table_id));
 
         // Columns
         int n = node->ss.ps.plan->targetlist->length;
@@ -390,7 +386,6 @@ cbBeginForeignScan( ForeignScanState *node,
         }
 
         // Schema
-        auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
         query_data.set_schema(getTableOption("schema", foreign_table_id));
 
         // UserToken
@@ -589,6 +584,7 @@ static struct fdwOption valid_options[] =
 	{ "url",  ForeignDataWrapperRelationId },
     { "provider", ForeignTableRelationId },
     { "schema", ForeignTableRelationId },
+    { "remotename", ForeignTableRelationId },
 
 	/* Sentinel */
 	{ "",	InvalidOid }
