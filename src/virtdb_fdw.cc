@@ -408,7 +408,7 @@ static TupleTableSlot *
 cbIterateForeignScan(ForeignScanState *node)
 {
     struct AttInMetadata * meta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
-    data_handler* handler = current_provider->worker_thread->get_data_handler(reinterpret_cast<long>(node));
+    auto handler = current_provider->worker_thread->get_data_handler(reinterpret_cast<long>(node));
     try
     {
         {
