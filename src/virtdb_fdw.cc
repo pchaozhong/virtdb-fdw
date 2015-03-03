@@ -411,111 +411,160 @@ cbIterateForeignScan(ForeignScanState *node)
     data_handler* handler = current_provider->worker_thread->get_data_handler(reinterpret_cast<long>(node));
     try
     {
-        if (handler->read_next())
         {
+            feeder & fdr = handler->get_feeder();
+
             TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
             ExecClearTuple(slot);
-            for (int column_id : handler->column_ids())
+            for (auto const & cid : handler->column_id_map() )
             {
+                int column_id        = cid.first;
+                size_t query_col_id  = cid.second;
+                bool is_null         = false; 
+
                 slot->tts_isnull[column_id] = true;
                 switch( meta->tupdesc->attrs[column_id]->atttypid )
                 {
-                    case VARCHAROID: {
-                        const auto * data = handler->get<std::string>(column_id);
-                        if (data != nullptr)
+                    case VARCHAROID:
+                    {
+                        char * ptr = nullptr;
+                        size_t len = 0;
+                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                          return nullptr;
+
+                        slot->tts_isnull[column_id] = is_null;
+                        if( !is_null )
                         {
-                            bytea *vcdata = reinterpret_cast<bytea *>(palloc(data->size() + VARHDRSZ));
-                            ::memcpy( VARDATA(vcdata), data->c_str(), data->size() );
-                            SET_VARSIZE(vcdata, data->size() + VARHDRSZ);
+                          if (len < VARATT_SHORT_MAX-VARHDRSZ_SHORT)
+                          {
+                            // lucky case: we can reuse the leading tag and length data from the string
+                            bytea *vcdata = reinterpret_cast<bytea *>(ptr-VARHDRSZ_SHORT);
+                            SET_VARSIZE_SHORT(vcdata, len + VARHDRSZ_SHORT);
                             slot->tts_values[column_id] = PointerGetDatum(vcdata);
-                            slot->tts_isnull[column_id] = false;
+                          }
+                          else
+                          {
+                            // bad case: we need to allocate and copy
+                            bytea *vcdata = reinterpret_cast<bytea *>(palloc(len + VARHDRSZ));
+                            ::memcpy( VARDATA(vcdata), ptr, len );
+                            SET_VARSIZE(vcdata, len + VARHDRSZ);
+                            slot->tts_values[column_id] = PointerGetDatum(vcdata);
+                          }
                         }
                         break;
                     }
-                    case INT4OID: {
-                        const auto * data = handler->get<int32_t>(column_id);
-                        if (data != nullptr)
-                        {
-                            slot->tts_values[column_id] = Int32GetDatum(*data);
-                            slot->tts_isnull[column_id] = false;
-                        }
+                    case INT4OID:
+                    {
+                        int32_t val = 0;
+                        if( fdr.read_int32(query_col_id, val, is_null) != feeder::vtr::ok_ )
+                          return nullptr;
+
+                        slot->tts_isnull[column_id] = is_null;
+                        if( !is_null )
+                          slot->tts_values[column_id] = Int32GetDatum(val); 
                         break;
                     }
-                    case INT8OID: {
-                        const auto * data = handler->get<int64_t>(column_id);
-                        if (data != nullptr)
-                        {
-                            slot->tts_values[column_id] = Int64GetDatum(*data);
-                            slot->tts_isnull[column_id] = false;
-                        }
+                    case INT8OID:
+                    {
+                        int64_t val = 0;
+                        if( fdr.read_int64(query_col_id, val, is_null) != feeder::vtr::ok_ )
+                          return nullptr;
+
+                        slot->tts_isnull[column_id] = is_null;
+                        if( !is_null )
+                          slot->tts_values[column_id] = Int64GetDatum(val); 
                         break;
                     }
-                    case FLOAT8OID:  {
-                        const auto * data = handler->get<double>(column_id);
-                        if (data != nullptr)
-                        {
-                            slot->tts_values[column_id] = Float8GetDatum(*data);
-                            slot->tts_isnull[column_id] = false;
-                        }
+                    case FLOAT8OID:
+                    {
+                        double val = 0;
+                        if( fdr.read_double(query_col_id, val, is_null) != feeder::vtr::ok_ )
+                          return nullptr;
+
+                        slot->tts_isnull[column_id] = is_null;
+                        if( !is_null )
+                          slot->tts_values[column_id] = Float8GetDatum(val); 
                         break;
                     }
-                    case FLOAT4OID:  {
-                        const auto *  data = handler->get<float>(column_id);
-                        if (data != nullptr)
-                        {
-                            slot->tts_values[column_id] = Float4GetDatum(*data);
-                            slot->tts_isnull[column_id] = false;
-                        }
+                    case FLOAT4OID:
+                    {
+                        float val = 0;
+                        if( fdr.read_float(query_col_id, val, is_null) != feeder::vtr::ok_ )
+                          return nullptr;
+
+                        slot->tts_isnull[column_id] = is_null;
+                        if( !is_null )
+                          slot->tts_values[column_id] = Float4GetDatum(val); 
                         break;
                     }
-                    case NUMERICOID: {
-                        const auto * data = handler->get<std::string>(column_id);
-                        if (data != nullptr)
+                    case NUMERICOID:
+                    {
+                        char * ptr = nullptr;
+                        size_t len = 0;
+                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                          return nullptr;
+
+                        slot->tts_isnull[column_id] = is_null;
+                        if( !is_null )
                         {
-                            slot->tts_values[column_id] =
+                          ptr[len] = 0;
+                          slot->tts_values[column_id] =
                                 DirectFunctionCall3( numeric_in,
-                                    CStringGetDatum(data->c_str()),
+                                    CStringGetDatum(ptr),
                                     ObjectIdGetDatum(InvalidOid),
                                     Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
-                            slot->tts_isnull[column_id] = false;
                         }
                         break;
                     }
-                    case DATEOID: {
-                        const auto * data = handler->get<std::string>(column_id);
-                        if (data != nullptr)
+                    case DATEOID:
+                    {
+                        char * ptr = nullptr;
+                        size_t len = 0;
+                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                          return nullptr;
+
+                        slot->tts_isnull[column_id] = is_null;
+                        if( !is_null )
                         {
-                            slot->tts_values[column_id] =
-                                DirectFunctionCall1( date_in,
-                                    CStringGetDatum(data->c_str()));
-                            slot->tts_isnull[column_id] = false;
+                          ptr[len] = 0;
+                          slot->tts_values[column_id] = DirectFunctionCall1( date_in, CStringGetDatum(ptr));
                         }
                         break;
-                    }
-                    case TIMESTAMPOID: {
-                        const auto * data = handler->get<std::string>(column_id);
-                        if (data != nullptr)
+		    }
+                    case TIMESTAMPOID: 
+                    {
+                        char * ptr = nullptr;
+                        size_t len = 0;
+                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                          return nullptr;
+
+                        slot->tts_isnull[column_id] = is_null;
+                        if( !is_null )
                         {
-                            slot->tts_values[column_id] =
-                                DirectFunctionCall3( timestamp_in,
-                                    CStringGetDatum(data->c_str()),
+                          ptr[len] = 0;
+                          slot->tts_values[column_id] =
+                                DirectFunctionCall3(timestamp_in,
+                                    CStringGetDatum(ptr),
                                     ObjectIdGetDatum(InvalidOid),
                                     Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
-                            slot->tts_isnull[column_id] = false;
                         }
                         break;
-                    }
-                    case TIMEOID: {
-                        const auto * data = handler->get<std::string>(column_id);
-                        if (data != nullptr)
+		    }
+                    case TIMEOID:
+                    {
+                        char * ptr = nullptr;
+                        size_t len = 0;
+                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                          return nullptr;
+
+                        slot->tts_isnull[column_id] = is_null;
+                        if( !is_null )
                         {
-                            slot->tts_values[column_id] =
-                                DirectFunctionCall1( time_in,
-                                    CStringGetDatum(data->c_str()));
-                            slot->tts_isnull[column_id] = false;
+                          ptr[len] = 0;
+                          slot->tts_values[column_id] = DirectFunctionCall1( time_in, CStringGetDatum(ptr));
                         }
                         break;
-                    }
+		    }
                     default: {
                         LOG_ERROR("Unhandled attribute type: " << V_(meta->tupdesc->attrs[column_id]->atttypid));
                         break;
@@ -525,14 +574,7 @@ cbIterateForeignScan(ForeignScanState *node)
             ExecStoreVirtualTuple(slot);
             return slot;
         }
-        else
-        {
-            // return nullptr if there is no more data.
-            LOG_TRACE("Finished loading data." << V_(handler->query_id()));
-            return nullptr;
-        }
     }
-    // catch(const std::logic_error & e)
     catch(const std::exception& e)
     {
 	onError(e.what());
