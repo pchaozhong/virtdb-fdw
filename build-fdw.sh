@@ -26,7 +26,7 @@ git config --global user.name $GITHUB_USER
 git config --global user.email $GITHUB_EMAIL
 
 cd virtdb-fdw
-make
+make RELEASE=1
 if [ $? -ne 0 ]; then echo "Failed to make FDW"; exit 10; fi
 
 git tag -f $BUILDNO
