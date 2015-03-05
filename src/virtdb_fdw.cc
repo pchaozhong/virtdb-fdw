@@ -84,14 +84,11 @@ struct provider {
     }
 };
 
-provider* current_provider = nullptr;
 std::map<std::string, provider> providers;
 
 static void
 onError(std::string message = "")
 {
-//    delete current_provider;
-//    current_provider = nullptr;
     delete log_client;
     log_client = nullptr;
     delete ep_client;
@@ -129,6 +126,65 @@ std::string getFDWOption(const std::string& option_name, Oid foreigntableid)
     return getOption(option_name, fdw->options);
 }
 
+provider* getProvider(Oid foreigntableid)
+{
+    try
+    {
+        uint64_t timeout = 10000;
+        std::string name = getTableOption("provider", foreigntableid);
+        auto* current_provider = &providers[name];
+
+        if (current_provider && current_provider->worker_thread == nullptr)
+        {
+            current_provider->worker_thread = new receiver_thread();
+        }
+
+        if (current_provider && current_provider->query_push_client == nullptr)
+        {
+            current_provider->query_push_client =
+                new push_client<virtdb::interface::pb::Query>(*ep_client, name);
+
+            if( !current_provider->query_push_client->wait_valid(timeout) )
+            {
+                LOG_ERROR("failed to connect query client" <<
+                       V_(ep_client->name()) <<
+                       V_(name) <<
+                       V_(timeout));
+
+                THROW_("failed to connect query client");
+            }
+        }
+
+        if (current_provider && current_provider->column_sub_client == nullptr)
+        {
+            current_provider->column_sub_client =
+                new sub_client<virtdb::interface::pb::Column>(*ep_client,
+                                                              name,
+                                                              5,     // retry count on 0MQ exception
+                                                              false  // shall kill the process by re-throwing?
+                                                              );
+
+            if( !current_provider->column_sub_client->wait_valid(timeout) )
+            {
+                LOG_ERROR("failed to connect column client" <<
+                          V_(ep_client->name()) <<
+                          V_(name) <<
+                          V_(timeout));
+
+                THROW_("failed to connect column client");
+            }
+        }
+
+        current_provider->column_sub_client->rethrow_error();
+        return current_provider;
+    }
+    catch(const std::exception & e)
+    {
+        onError(e.what());
+    }
+}
+
+
 // We dont't do anything here right now, it is intended only for optimizations.
 static void
 cbGetForeignRelSize( PlannerInfo *root,
@@ -138,15 +194,6 @@ cbGetForeignRelSize( PlannerInfo *root,
     try
     {
         uint64_t timeout = 10000;
-        std::string name = getTableOption("provider", foreigntableid);
-        current_provider = &providers[name];
-        current_provider->name = name;
-
-        if (current_provider && current_provider->worker_thread == nullptr)
-        {
-            current_provider->worker_thread = new receiver_thread();
-        }
-
 
         if (ep_client == nullptr)
         {
@@ -174,39 +221,9 @@ cbGetForeignRelSize( PlannerInfo *root,
 
         }
 
-        current_provider->query_push_client =
-            new push_client<virtdb::interface::pb::Query>(*ep_client, current_provider->name);
-
-        if( !current_provider->query_push_client->wait_valid(timeout) )
-        {
-            LOG_ERROR("failed to connect query client" <<
-                   V_(ep_client->name()) <<
-                   V_(current_provider->name) <<
-                   V_(timeout));
-
-            THROW_("failed to connect query client");
-        }
-
-        current_provider->column_sub_client =
-            new sub_client<virtdb::interface::pb::Column>(*ep_client,
-                                                          current_provider->name,
-                                                          5,     // retry count on 0MQ exception
-                                                          false  // shall kill the process by re-throwing?
-                                                          );
-
-        if( !current_provider->column_sub_client->wait_valid(timeout) )
-        {
-            LOG_ERROR("failed to connect column client" <<
-                      V_(ep_client->name()) <<
-                      V_(current_provider->name) <<
-                      V_(timeout));
-
-            THROW_("failed to connect column client");
-        }
 
         ep_client->rethrow_error();
         log_client->rethrow_error();
-        current_provider->column_sub_client->rethrow_error();
     }
     catch(const std::exception & e)
     {
@@ -340,11 +357,13 @@ cbBeginForeignScan( ForeignScanState *node,
     filterChain->add(new default_filter());
     try
     {
+        auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
         virtdb::engine::query query_data;
+        auto* current_provider = getProvider(foreign_table_id);
 
         // Table name
-        auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
-        query_data.set_table_name(getTableOption("remotename", foreign_table_id));
+        auto table_name = getTableOption("remotename", foreign_table_id);
+        query_data.set_table_name(table_name);
 
         // Columns
         int n = node->ss.ps.plan->targetlist->length;
@@ -408,6 +427,8 @@ static TupleTableSlot *
 cbIterateForeignScan(ForeignScanState *node)
 {
     struct AttInMetadata * meta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
+    auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
+    auto* current_provider = getProvider(foreign_table_id);
     auto handler = current_provider->worker_thread->get_data_handler(reinterpret_cast<long>(node));
     try
     {
@@ -591,6 +612,8 @@ cbReScanForeignScan( ForeignScanState *node )
 static void
 cbEndForeignScan(ForeignScanState *node)
 {
+    auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
+    auto* current_provider = getProvider(foreign_table_id);
     current_provider->worker_thread->remove_query(*current_provider->column_sub_client, reinterpret_cast<long>(node));
 }
 
