@@ -347,7 +347,6 @@ cbBeginForeignScan( ForeignScanState *node,
                     int eflags )
 {
     // elog_node_display(INFO, "node: ", node->ss.ps.plan, true);
-
     ListCell   *l;
     struct AttInMetadata * meta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
     filter* filterChain = new op_expr_filter();
@@ -423,6 +422,7 @@ cbBeginForeignScan( ForeignScanState *node,
     }
 }
 
+
 static TupleTableSlot *
 cbIterateForeignScan(ForeignScanState *node)
 {
@@ -434,9 +434,9 @@ cbIterateForeignScan(ForeignScanState *node)
     {
         {
             feeder & fdr = handler->get_feeder();
-
             TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
             ExecClearTuple(slot);
+
             for (auto const & cid : handler->column_id_map() )
             {
                 int column_id        = cid.first;
