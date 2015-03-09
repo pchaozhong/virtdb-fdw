@@ -458,17 +458,6 @@ cbIterateForeignScan(ForeignScanState *node)
 
                 slot->tts_isnull[column_id] = true;
 
-                /*
-                regproc typinput;
-                HeapTuple tuple;
-                Datum dat;
-                Oid pgtype = meta->tupdesc->attrs[column_id]->atttypid;
-                tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(pgtype));
-                // if (!HeapTupleIsValid(tuple))
-                typinput = ((Form_pg_type)GETSTRUCT(tuple))->typinput;
-                ReleaseSysCache(tuple);
-                */
-
                 switch( meta->tupdesc->attrs[column_id]->atttypid )
                 {
                     case VARCHAROID:
@@ -566,14 +555,6 @@ cbIterateForeignScan(ForeignScanState *node)
                         if( !is_null )
                         {
                           ptr[len] = 0;
-                          /*
-                          dat = CStringGetDatum(ptr);
-                          slot->tts_values[column_id] =
-                               OidFunctionCall3(typinput,
-						dat,
-						ObjectIdGetDatum(InvalidOid),
-						Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod));
-                          */
                           slot->tts_values[column_id] =
                                 DirectFunctionCall3( numeric_in,
                                     CStringGetDatum(ptr),
@@ -582,7 +563,6 @@ cbIterateForeignScan(ForeignScanState *node)
                         }
                         break;
                     }
-                    //case TIMEOID:
                     case DATEOID:
                     {
                         char * ptr = nullptr;
@@ -594,8 +574,6 @@ cbIterateForeignScan(ForeignScanState *node)
                         if( !is_null )
                         {
                           ptr[len] = 0;
-                          // dat = CStringGetDatum(ptr);
-                          // slot->tts_values[column_id] = OidFunctionCall1(typinput, dat);
                           slot->tts_values[column_id] = DirectFunctionCall1( date_in, CStringGetDatum(ptr));
                         }
                         break;
