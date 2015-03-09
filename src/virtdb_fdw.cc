@@ -437,6 +437,19 @@ cbIterateForeignScan(ForeignScanState *node)
             TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
             ExecClearTuple(slot);
 
+            if( !fdr.started() )
+            {
+                // try to gather first block
+                if( !fdr.fetch_next() )
+                    return nullptr;
+            }
+            else if( !fdr.has_more() )
+            {
+                // try to gather next block
+                if( !fdr.fetch_next() )
+                    return nullptr;
+            }
+
             for (auto const & cid : handler->column_id_map() )
             {
                 int column_id        = cid.first;
@@ -444,6 +457,18 @@ cbIterateForeignScan(ForeignScanState *node)
                 bool is_null         = false; 
 
                 slot->tts_isnull[column_id] = true;
+
+                /*
+                regproc typinput;
+                HeapTuple tuple;
+                Datum dat;
+                Oid pgtype = meta->tupdesc->attrs[column_id]->atttypid;
+                tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(pgtype));
+                // if (!HeapTupleIsValid(tuple))
+                typinput = ((Form_pg_type)GETSTRUCT(tuple))->typinput;
+                ReleaseSysCache(tuple);
+                */
+
                 switch( meta->tupdesc->attrs[column_id]->atttypid )
                 {
                     case VARCHAROID:
@@ -471,6 +496,17 @@ cbIterateForeignScan(ForeignScanState *node)
                             SET_VARSIZE(vcdata, len + VARHDRSZ);
                             slot->tts_values[column_id] = PointerGetDatum(vcdata);
                           }
+                          /*
+                          if( len > 0 && ptr != nullptr )
+                          {
+                            ptr[len] = 0;
+                            slot->tts_values[column_id] = CStringGetDatum(ptr);
+                          }
+                          else
+                          {
+                            slot->tts_values[column_id] = CStringGetDatum("");
+                          }
+                          */
                         }
                         break;
                     }
@@ -520,6 +556,7 @@ cbIterateForeignScan(ForeignScanState *node)
                     }
                     case NUMERICOID:
                     {
+    
                         char * ptr = nullptr;
                         size_t len = 0;
                         if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
@@ -529,6 +566,14 @@ cbIterateForeignScan(ForeignScanState *node)
                         if( !is_null )
                         {
                           ptr[len] = 0;
+                          /*
+                          dat = CStringGetDatum(ptr);
+                          slot->tts_values[column_id] =
+                               OidFunctionCall3(typinput,
+						dat,
+						ObjectIdGetDatum(InvalidOid),
+						Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod));
+                          */
                           slot->tts_values[column_id] =
                                 DirectFunctionCall3( numeric_in,
                                     CStringGetDatum(ptr),
@@ -537,6 +582,7 @@ cbIterateForeignScan(ForeignScanState *node)
                         }
                         break;
                     }
+                    //case TIMEOID:
                     case DATEOID:
                     {
                         char * ptr = nullptr;
@@ -548,6 +594,8 @@ cbIterateForeignScan(ForeignScanState *node)
                         if( !is_null )
                         {
                           ptr[len] = 0;
+                          // dat = CStringGetDatum(ptr);
+                          // slot->tts_values[column_id] = OidFunctionCall1(typinput, dat);
                           slot->tts_values[column_id] = DirectFunctionCall1( date_in, CStringGetDatum(ptr));
                         }
                         break;
