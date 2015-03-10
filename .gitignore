@@ -46,3 +46,5 @@ tags
 
 # tmp build
 build-result/
+
+Dockerfile
