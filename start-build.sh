@@ -4,6 +4,7 @@ REPO="git@github.com:starschema/virtdb-fdw.git"
 BUILDNO=`git ls-remote --tags $REPO 2>&1 | ./new_build_tag.pl`
 export BUILDNO
 IMAGE_NAME="virtdb-build:centos6-fdw-builder"
+echo Dockerfile.in | sed s/"@BUILDNO@"/$BUILDNO/g > Dockerfile
 docker build --force-rm=true -t "$IMAGE_NAME" .
 
 if [ $? -ne 0 ]
