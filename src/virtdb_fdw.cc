@@ -139,10 +139,13 @@ provider* getProvider(Oid foreigntableid)
             current_provider->worker_thread = new receiver_thread();
         }
 
+        client_context::sptr cli_ctx{new client_context};
+
         if (current_provider && current_provider->query_push_client == nullptr)
         {
+            // TODO : use query_client here
             current_provider->query_push_client =
-                new push_client<virtdb::interface::pb::Query>(*ep_client, name);
+                new push_client<virtdb::interface::pb::Query>(cli_ctx, *ep_client, name);
 
             if( !current_provider->query_push_client->wait_valid(timeout) )
             {
@@ -157,8 +160,10 @@ provider* getProvider(Oid foreigntableid)
 
         if (current_provider && current_provider->column_sub_client == nullptr)
         {
+            // TODO : use column_client here
             current_provider->column_sub_client =
-                new sub_client<virtdb::interface::pb::Column>(*ep_client,
+                new sub_client<virtdb::interface::pb::Column>(cli_ctx, 
+                                                              *ep_client,
                                                               name,
                                                               5,     // retry count on 0MQ exception
                                                               false  // shall kill the process by re-throwing?
@@ -182,6 +187,7 @@ provider* getProvider(Oid foreigntableid)
     {
         onError(e.what());
     }
+    return NULL;
 }
 
 
@@ -194,6 +200,7 @@ cbGetForeignRelSize( PlannerInfo *root,
     try
     {
         uint64_t timeout = 10000;
+        client_context::sptr cli_ctx{new client_context};
 
         if (ep_client == nullptr)
         {
@@ -201,13 +208,13 @@ cbGetForeignRelSize( PlannerInfo *root,
             elog(LOG, "Config server url: %s", config_server_url.c_str());
             if (config_server_url != "")
             {
-                ep_client = new endpoint_client(config_server_url, "postgres_generic_fdw");
+                ep_client = new endpoint_client(cli_ctx, config_server_url, "postgres_generic_fdw");
             }
         }
 
         if (log_client == nullptr)
         {
-            log_client = new log_record_client(*ep_client, "diag-service");
+            log_client = new log_record_client(cli_ctx, *ep_client, "diag-service");
 
             if( !log_client->wait_valid_push(timeout) )
             {
