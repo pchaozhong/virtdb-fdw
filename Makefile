@@ -17,8 +17,8 @@ EXTRA_CLEAN := $(EXTENSION)--$(EXTVERSION).sql \
                $(OBJS) \
                $(DEPS) \
                $(wildcard $(BUILD_ROOT)/common/lib*.a) \
-               $(wildcard $(BUILD_ROOT)/common/proto/lib*.a) \
-               $(wildcard $(BUILD_ROOT)/common/proto/*.pb.*)
+               $(wildcard $(BUILD_ROOT)/common/deps_/proto/lib*.a) \
+               $(wildcard $(BUILD_ROOT)/common/deps_/proto/*.pb.*)
 PG_CONFIG ?= $(shell which pg_config)
 ifeq ($(PG_CONFIG), )
 $(info $$PG_CONFIG is [${PG_CONFIG}])
@@ -26,7 +26,7 @@ PG_CONFIG = $(shell which pg_config)
 endif
 
 COMMON_LIB := $(BUILD_ROOT)/common/libcommon.a
-PROTO_LIB := $(BUILD_ROOT)/common/proto/libproto.a
+PROTO_LIB := $(BUILD_ROOT)/common/deps_/proto/libproto.a
 
 ifeq ($(PG_CONFIG), )
 $(info $$PG_CONFIG is [${PG_CONFIG}])
@@ -56,14 +56,6 @@ endif
 $(info $$CFLAGS is [${CFLAGS}])
 $(info $$LDFLAGS is [${LDFLAGS}])
 
-test-build-all:
-	@echo "building tests"
-	make -C test/ all
-
-test-build-clean:
-	@echo "cleaning tests"
-	make -C test/ clean
-
 common-build-all:
 	cd $(BUILD_ROOT)/common; make -f common.mk all RELEASE=1
 
@@ -78,7 +70,7 @@ $(EXTENSION)--$(EXTVERSION).sql: $(EXTENSION).sql
 	$(CXX) -c -o $@ $< $(CXXFLAGS)
 	$(CXX) -MM $*.cc -MT $@ -MF $*.d $(CXXFLAGS)
 
-virtdb-clean: test-build-clean clean
+virtdb-clean: clean
 	cd $(BUILD_ROOT)/common; make -f common.mk clean
 	@echo "checking for suspicious files"
 	@find . -type f -name "*.so"

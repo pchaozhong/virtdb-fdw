@@ -9,21 +9,12 @@ SODIUM_CFLAGS   := $(shell pkg-config --cflags libsodium) -I$(HOME)/libsodium-in
 
 PROTOBUF_LDFLAGS  := $(shell pkg-config --libs protobuf)
 PROTOBUF_CFLAGS   := $(shell pkg-config --cflags protobuf)
-PROTOBUF_PATH     := $(BUILD_ROOT)/common/proto/
-PROTOBUF_PROTOS   := $(wildcard $(BUILD_ROOT)/common/proto/*.proto)
+PROTOBUF_PATH     := $(BUILD_ROOT)/common/deps_/proto/
+PROTOBUF_PROTOS   := $(wildcard $(BUILD_ROOT)/common/deps_/proto/*.proto)
 PROTOBUF_HEADERS  := $(patsubst %.proto,%.pb.h,$(PROTOBUF_PROTOS))
 
-GTEST_PATH      := $(BUILD_ROOT)/common/gtest
-GTEST_LIBDIR    := $(GTEST_PATH)/lib/
-GTEST_INCLUDE   := $(GTEST_PATH)/include
-GTEST_LIBS      :=  -lgtest
-GTEST_LDFLAGS   := -L$(GTEST_LIBDIR) -L$(GTEST_LIBDIR)/.libs $(GTEST_LIBS)
-GTEST_CFLAGS    := -I$(GTEST_INCLUDE)
-GTEST_RPATH     := -rpath=$(GTEST_LIBDIR)/ -rpath=$(GTEST_LIBDIR)/.libs/
-GTEST_RPATH_WL  := -Wl,-rpath=$(GTEST_LIBDIR)/ -Wl,-rpath=$(GTEST_LIBDIR)/.libs/
-
-COMMON_LDFLAGS  := $(BUILD_ROOT)/common/libcommon.a $(BUILD_ROOT)/common/proto/libproto.a
-COMMON_CFLAGS   := -I$(BUILD_ROOT)/common -I$(BUILD_ROOT)/common/proto
+COMMON_LDFLAGS  := $(BUILD_ROOT)/common/libcommon.a $(BUILD_ROOT)/common/deps_/proto/libproto.a
+COMMON_CFLAGS   := -I$(BUILD_ROOT)/common -I$(BUILD_ROOT)/common/deps_/proto
 
 # FIXME on Windows
 FIX_CXX_11_BUG :=
