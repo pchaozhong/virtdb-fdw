@@ -31,7 +31,7 @@ public:
                 std::shared_ptr<expression> left = get_head()->apply((Expr *)current->data.ptr_value, meta);
                 std::shared_ptr<expression> right = get_head()->apply((Expr *)current->next->data.ptr_value, meta);
                 std::shared_ptr<expression> ret (new expression);
-                ret->set_composite(left.get(), right.get());
+                ret->set_composite(left, right);
                 switch (bool_expression->boolop) {
                     case AND_EXPR:
                         ret->set_operand("AND");
