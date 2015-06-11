@@ -382,13 +382,43 @@ cbBeginForeignScan( ForeignScanState *node,
             }
             Expr* expr = reinterpret_cast<Expr*> (lfirst(cell));
             const Var* variable = get_variable(expr);
-            if (variable != nullptr)
+           
+            if (variable != nullptr )
             {
-                // elog(LOG, "Column: %s (%d)", meta->tupdesc->attrs[variable->varattno-1]->attname.data, variable->varattno-1);
-                query_data.add_column( static_cast<engine::column_id_t>(variable->varattno-1),
-                    getField(meta->tupdesc->attrs[variable->varattno-1]->attname.data,
-                            meta->tupdesc->attrs[variable->varattno-1]->atttypid));
+                if( variable->varattno <= meta->tupdesc->natts )
+                {
+                    // elog(LOG, "Column: %s (%d)", meta->tupdesc->attrs[variable->varattno-1]->attname.data, variable->varattno-1);
+                    engine::column_id_t col_id = static_cast<engine::column_id_t>(variable->varattno-1);
+                    auto tupdesc_attrs = meta->tupdesc->attrs;
+                    if( tupdesc_attrs )
+                    {
+                        auto var_attr = tupdesc_attrs[variable->varattno-1];
+                        if( var_attr )
+                        {
+                            query_data.add_column(col_id,
+                                getField(var_attr->attname.data,
+                                         var_attr->atttypid));
+                        }
+                        else 
+                        {
+                            elog(LOG, "VIRTDB WARN: var_attr is null");
+                        } 
+                    }
+                    else
+                    {
+                        elog(LOG, "VIRTDB WARN: tupdesc_attrs is null");
+                    } 
+                }
+                else
+                {
+                    elog(LOG, "VIRTDB WARN natts=%d varattno=%d, variable is not valid",variable->varattno,meta->tupdesc->natts);
+                }
             }
+            else
+            {
+                elog(LOG, "VIRTDB WARN: variable is null");
+            }
+            
             cell = cell->next;
         }
 
