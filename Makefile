@@ -18,6 +18,7 @@ EXTRA_CLEAN := $(EXTENSION)--$(EXTVERSION).sql \
                $(DEPS) \
                $(wildcard $(BUILD_ROOT)/common/lib*.a) \
                $(wildcard $(BUILD_ROOT)/common/deps_/proto/lib*.a) \
+               $(wildcard $(BUILD_ROOT)/common/deps_/fsm/lib*.a) \
                $(wildcard $(BUILD_ROOT)/common/deps_/proto/*.pb.*)
 PG_CONFIG ?= $(shell which pg_config)
 ifeq ($(PG_CONFIG), )
@@ -26,7 +27,8 @@ PG_CONFIG = $(shell which pg_config)
 endif
 
 COMMON_LIB := $(BUILD_ROOT)/common/libcommon.a
-PROTO_LIB := $(BUILD_ROOT)/common/deps_/proto/libproto.a
+PROTO_LIB  := $(BUILD_ROOT)/common/deps_/proto/libproto.a
+FSM_LIB    := $(BUILD_ROOT)/common/deps_/fsm/libfsm.a
 
 ifeq ($(PG_CONFIG), )
 $(info $$PG_CONFIG is [${PG_CONFIG}])
@@ -35,7 +37,7 @@ endif
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 PG_CPPFLAGS := $(ZMQ_CFLAGS) $(PROTOBUF_CFLAGS) $(SODIUM_CFLAGS)
-PG_LIBS := -lstdc++ $(ZMQ_LDFLAGS) $(SODIUM_LDFLAGS) $(PROTOBUF_LDFLAGS) $(COMMON_LIB) $(PROTO_LIB)
+PG_LIBS := -lstdc++ $(ZMQ_LDFLAGS) $(SODIUM_LDFLAGS) $(PROTOBUF_LDFLAGS) $(COMMON_LIB) $(PROTO_LIB) $(FSM_LIB)
 
 include $(PGXS)
 

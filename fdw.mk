@@ -13,8 +13,8 @@ PROTOBUF_PATH     := $(BUILD_ROOT)/common/deps_/proto/
 PROTOBUF_PROTOS   := $(wildcard $(BUILD_ROOT)/common/deps_/proto/*.proto)
 PROTOBUF_HEADERS  := $(patsubst %.proto,%.pb.h,$(PROTOBUF_PROTOS))
 
-COMMON_LDFLAGS  := $(BUILD_ROOT)/common/libcommon.a $(BUILD_ROOT)/common/deps_/proto/libproto.a
-COMMON_CFLAGS   := -I$(BUILD_ROOT)/common -I$(BUILD_ROOT)/common/deps_/proto
+COMMON_LDFLAGS  := $(BUILD_ROOT)/common/libcommon.a $(BUILD_ROOT)/common/deps_/proto/libproto.a $(BUILD_ROOT)/common/deps_/fsm/libfsm.a
+COMMON_CFLAGS   := -I$(BUILD_ROOT)/common -I$(BUILD_ROOT)/common/deps_/proto -I$(BUILD_ROOT)/common/deps_/fsm/src
 
 # FIXME on Windows
 FIX_CXX_11_BUG :=
