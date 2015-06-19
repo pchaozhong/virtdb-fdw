@@ -137,7 +137,6 @@ namespace virtdb_fdw_priv {
                                    column_sub_client_,
                                    node,
                                    query);
-        // LOG_TRACE("send query for" << V_((int64_t)node) << P_(this) << V_(query.table_name()));
       }
       else
       {
@@ -156,7 +155,6 @@ namespace virtdb_fdw_priv {
                                    query_push_client_,
                                    node,
                                    segment_id);
-        // LOG_TRACE("stopped query for" << V_((int64_t)node) << P_(this) << V_(table_name));
       }
       else
       {
@@ -171,7 +169,6 @@ namespace virtdb_fdw_priv {
       {
         worker_thread_->remove_query(column_sub_client_,
                                      node);
-        // LOG_TRACE("removed query for" << V_((int64_t)node) << P_(this));
       }
       else
       {
@@ -186,7 +183,6 @@ namespace virtdb_fdw_priv {
       if( worker_thread_ )
       {
         ret = worker_thread_->get_data_handler(node);
-        // LOG_TRACE("data handler for" << V_((int64_t)node) << P_(this) << P_(ret.get()));
       }
       else
       {
@@ -258,7 +254,6 @@ namespace virtdb_fdw_priv {
       
       if( it == providers.end() )
       {
-        // LOG_TRACE("creating new provider for" << V_((int64_t)foreigntableid) << V_(name));
         current_provider.reset(new provider{name, ep_client});
         providers[name] = current_provider;
       }
@@ -267,8 +262,6 @@ namespace virtdb_fdw_priv {
         current_provider = it->second;
       }
       
-      // LOG_TRACE("returning provider for" << V_((int64_t)foreigntableid) << V_(name) << P_(current_provider.get()));
-
       return current_provider;
     }
     catch(const std::exception & e)
@@ -278,169 +271,168 @@ namespace virtdb_fdw_priv {
     return current_provider;
   }
 
-
-// We dont't do anything here right now, it is intended only for optimizations.
-static void
-cbGetForeignRelSize( PlannerInfo *root,
-                     RelOptInfo *baserel,
-                     Oid foreigntableid )
-{
+  // We dont't do anything here right now, it is intended only for optimizations.
+  static void
+  cbGetForeignRelSize( PlannerInfo *root,
+                      RelOptInfo *baserel,
+                      Oid foreigntableid )
+  {
     try
     {
-        uint64_t timeout = 10000;
-        client_context::sptr cli_ctx{new client_context};
-
-        // TODO : move this to module load / initialization
-        if (ep_client == nullptr)
+      uint64_t timeout = 10000;
+      client_context::sptr cli_ctx{new client_context};
+      
+      // TODO : move this to module load / initialization
+      if (ep_client == nullptr)
+      {
+        std::string config_server_url = getFDWOption("url", foreigntableid);
+        elog(LOG, "Config server url: %s", config_server_url.c_str());
+        if (config_server_url != "")
         {
-            std::string config_server_url = getFDWOption("url", foreigntableid);
-            elog(LOG, "Config server url: %s", config_server_url.c_str());
-            if (config_server_url != "")
-            {
-                ep_client.reset(new endpoint_client(cli_ctx, config_server_url, "postgres_generic_fdw"));
-            }
+          ep_client.reset(new endpoint_client(cli_ctx, config_server_url, "postgres_generic_fdw"));
         }
-
-        // TODO : move this to module load / initialization
-        if (log_client == nullptr)
+      }
+      
+      // TODO : move this to module load / initialization
+      if (log_client == nullptr)
+      {
+        log_client.reset(new log_record_client(cli_ctx, *ep_client, "diag-service"));
+        
+        if( !log_client->wait_valid_push(timeout) )
         {
-            log_client.reset(new log_record_client(cli_ctx, *ep_client, "diag-service"));
-
-            if( !log_client->wait_valid_push(timeout) )
-            {
-                LOG_ERROR("failed to connect log client" <<
-                          V_(ep_client->name()) <<
-                          V_(ep_client->service_ep()) <<
-                          V_(timeout));
-
-                THROW_("failed to connect log client");
-            }
+          LOG_ERROR("failed to connect log client" <<
+                    V_(ep_client->name()) <<
+                    V_(ep_client->service_ep()) <<
+                    V_(timeout));
+          
+          THROW_("failed to connect log client");
         }
-
-        ep_client->rethrow_error();
-        log_client->rethrow_error();
+      }
+      
+      ep_client->rethrow_error();
+      log_client->rethrow_error();
     }
     catch(const std::exception & e)
     {
-        onError(e.what());
+      onError(e.what());
     }
+  }
 
-}
-
-// We also don't intend to put this to the public API for now so this
-// default implementation is enough.
-static void
-cbGetForeignPaths( PlannerInfo *root,
+  // We also don't intend to put this to the public API for now so this
+  // default implementation is enough.
+  static void
+  cbGetForeignPaths( PlannerInfo *root,
                     RelOptInfo *baserel,
                     Oid foreigntableid)
-{
+  {
     Cost startup_cost = 0;
     Cost total_cost = startup_cost + baserel->rows * baserel->width;
-
+    
     add_path(baserel,
-             reinterpret_cast<Path *>(create_foreignscan_path(
-                 root,
-                 baserel,
-                 baserel->rows,
-                 startup_cost,
-                 total_cost,
-                 // no pathkeys:  TODO! check-this!
-                 NIL,
-                 nullptr,
-                 // no outer rel either:  TODO! check-this!
-                 NIL
-            )));
-}
+             reinterpret_cast<Path *>(create_foreignscan_path(root,
+                                                              baserel,
+                                                              baserel->rows,
+                                                              startup_cost,
+                                                              total_cost,
+                                                              // no pathkeys:  TODO! check-this!
+                                                              NIL,
+                                                              nullptr,
+                                                              // no outer rel either:  TODO! check-this!
+                                                              NIL
+                                                              )));
+  }
 
-// Maybe in a later version we could provide API for extracting clauses
-// but this is good enough for now to just leave in all of them.
-static ForeignScan
-*cbGetForeignPlan( PlannerInfo *root,
-                   RelOptInfo *baserel,
-                   Oid foreigntableid,
-                   ForeignPath *best_path,
-                   List *tlist,
-                   List *scan_clauses )
-{
+  // Maybe in a later version we could provide API for extracting clauses
+  // but this is good enough for now to just leave in all of them.
+  static ForeignScan
+  *cbGetForeignPlan( PlannerInfo *root,
+                    RelOptInfo *baserel,
+                    Oid foreigntableid,
+                    ForeignPath *best_path,
+                    List *tlist,
+                    List *scan_clauses )
+  {
     Index scan_relid = baserel->relid;
     if (scan_clauses != nullptr)
     {
-        elog(LOG, "[%s] - Length of clauses BEFORE extraction: %d",
-                    __func__, scan_clauses->length);
+      elog(LOG, "[%s] - Length of clauses BEFORE extraction: %d",
+           __func__, scan_clauses->length);
     }
-
+    
     // Remove pseudo-constant clauses
     scan_clauses = extract_actual_clauses(scan_clauses, false);
     if (scan_clauses != nullptr)
     {
-        elog(LOG, "[%s] - Length of clauses AFTER extraction: %d",
-                    __func__, scan_clauses->length);
+      elog(LOG, "[%s] - Length of clauses AFTER extraction: %d",
+           __func__, scan_clauses->length);
     }
-
+    
     // 1. make sure floating point representation doesn't trick us
     // 2. only set the limit if this is a single table
     List* limit = nullptr;
     size_t nrels = bms_num_members(root->all_baserels);
     if( nrels == 1 && root->limit_tuples > 0.9 )
     {
-        limit = list_make1_int(0.1+root->limit_tuples);
+      limit = list_make1_int(0.1+root->limit_tuples);
     }
-
+    
     ForeignScan * ret =
-        make_foreignscan(
-            tlist,
-            scan_clauses,
-            scan_relid,
-            NIL,
-            limit);
-
+    make_foreignscan(
+                     tlist,
+                     scan_clauses,
+                     scan_relid,
+                     NIL,
+                     limit);
+    
     return ret;
-}
+  }
 
-virtdb::interface::pb::Field getField(const std::string& name, Oid atttypid)
-{
+  virtdb::interface::pb::Field
+  getField(const std::string& name, Oid atttypid)
+  {
     virtdb::interface::pb::Field ret;
     ret.set_name(name);
     switch (atttypid)
     {
-        case VARCHAROID:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::STRING);
-            break;
-        case INT4OID:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::INT32);
-            break;
-        case INT8OID:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::INT64);
-            break;
-        case FLOAT8OID:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DOUBLE);
-            break;
-        case FLOAT4OID:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::FLOAT);
-            break;
-        case NUMERICOID:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::NUMERIC);
-            break;
-        case DATEOID:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DATE);
-            break;
-        case TIMESTAMPOID:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DATETIME);
-            break;
-        case TIMEOID:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::TIME);
-            break;
-        default:
-            ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::STRING);
-            break;
+      case VARCHAROID:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::STRING);
+        break;
+      case INT4OID:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::INT32);
+        break;
+      case INT8OID:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::INT64);
+        break;
+      case FLOAT8OID:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DOUBLE);
+        break;
+      case FLOAT4OID:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::FLOAT);
+        break;
+      case NUMERICOID:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::NUMERIC);
+        break;
+      case DATEOID:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DATE);
+        break;
+      case TIMESTAMPOID:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::DATETIME);
+        break;
+      case TIMEOID:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::TIME);
+        break;
+      default:
+        ret.mutable_desc()->set_type(virtdb::interface::pb::Kind::STRING);
+        break;
     }
     return ret;
-}
+  }
 
-static void
-cbBeginForeignScan( ForeignScanState *node,
-                    int eflags )
-{
+
+  static void
+  cbBeginForeignScan( ForeignScanState *node,
+                     int eflags )
+  {
     // elog_node_display(INFO, "node: ", node->ss.ps.plan, true);
     ListCell   *l;
     struct AttInMetadata * meta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
@@ -451,319 +443,308 @@ cbBeginForeignScan( ForeignScanState *node,
     filterChain->add(new default_filter());
     try
     {
-        auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
-        virtdb::engine::query query_data;
-        auto current_provider = getProvider(foreign_table_id);
-        // LOG_SCOPED(P_(current_provider.get()));
-
-        if( !current_provider )
+      auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
+      virtdb::engine::query query_data;
+      auto current_provider = getProvider(foreign_table_id);
+      // LOG_SCOPED(P_(current_provider.get()));
+      
+      if( !current_provider )
+      {
+        THROW_("invalid provider object. not initialized");
+      }
+      
+      // Table name
+      auto table_name = getTableOption("remotename", foreign_table_id);
+      query_data.set_table_name(table_name);
+      
+      // Columns
+      int n = node->ss.ps.plan->targetlist->length;
+      ListCell* cell = node->ss.ps.plan->targetlist->head;
+      for (int i = 0; i < n; i++)
+      {
+        if (!IsA(lfirst(cell), TargetEntry))
         {
-          THROW_("invalid provider object. not initialized");
+          continue;
         }
-
-        // Table name
-        auto table_name = getTableOption("remotename", foreign_table_id);
-        query_data.set_table_name(table_name);
-
-        // Columns
-        int n = node->ss.ps.plan->targetlist->length;
-        ListCell* cell = node->ss.ps.plan->targetlist->head;
-        for (int i = 0; i < n; i++)
+        Expr* expr = reinterpret_cast<Expr*> (lfirst(cell));
+        const Var* variable = get_variable(expr);
+        
+        if (variable != nullptr )
         {
-            if (!IsA(lfirst(cell), TargetEntry))
+          if( variable->varattno <= meta->tupdesc->natts )
+          {
+            // elog(LOG, "Column: %s (%d)", meta->tupdesc->attrs[variable->varattno-1]->attname.data, variable->varattno-1);
+            engine::column_id_t col_id = static_cast<engine::column_id_t>(variable->varattno-1);
+            auto tupdesc_attrs = meta->tupdesc->attrs;
+            if( tupdesc_attrs )
             {
-                continue;
-            }
-            Expr* expr = reinterpret_cast<Expr*> (lfirst(cell));
-            const Var* variable = get_variable(expr);
-           
-            if (variable != nullptr )
-            {
-                if( variable->varattno <= meta->tupdesc->natts )
-                {
-                    // elog(LOG, "Column: %s (%d)", meta->tupdesc->attrs[variable->varattno-1]->attname.data, variable->varattno-1);
-                    engine::column_id_t col_id = static_cast<engine::column_id_t>(variable->varattno-1);
-                    auto tupdesc_attrs = meta->tupdesc->attrs;
-                    if( tupdesc_attrs )
-                    {
-                        auto var_attr = tupdesc_attrs[variable->varattno-1];
-                        if( var_attr )
-                        {
-                            query_data.add_column(col_id,
-                                getField(var_attr->attname.data,
-                                         var_attr->atttypid));
-                        }
-                        else 
-                        {
-                            elog(LOG, "VIRTDB WARN: var_attr is null");
-                        } 
-                    }
-                    else
-                    {
-                        elog(LOG, "VIRTDB WARN: tupdesc_attrs is null");
-                    } 
-                }
-                else
-                {
-                    elog(LOG, "VIRTDB WARN natts=%d varattno=%d, variable is not valid",variable->varattno,meta->tupdesc->natts);
-                }
+              auto var_attr = tupdesc_attrs[variable->varattno-1];
+              if( var_attr )
+              {
+                query_data.add_column(col_id,
+                                      getField(var_attr->attname.data,
+                                               var_attr->atttypid));
+              }
+              else
+              {
+                elog(LOG, "VIRTDB WARN: var_attr is null");
+              }
             }
             else
             {
-                elog(LOG, "VIRTDB WARN: variable is null");
+              elog(LOG, "VIRTDB WARN: tupdesc_attrs is null");
             }
-            
-            cell = cell->next;
+          }
+          else
+          {
+            elog(LOG, "VIRTDB WARN natts=%d varattno=%d, variable is not valid",variable->varattno,meta->tupdesc->natts);
+          }
         }
-
-        // Filters
-        foreach(l, node->ss.ps.plan->qual)
+        else
         {
-            Expr* clause = (Expr*) lfirst(l);
-            query_data.add_filter( filterChain->apply(clause, meta) );
+          elog(LOG, "VIRTDB WARN: variable is null");
         }
-
-        // Limit
-        // From: http://www.postgresql.org/docs/9.2/static/fdw-callbacks.html
-        // Information about the table to scan is accessible through the ForeignScanState node
-        // (in particular, from the underlying ForeignScan plan node, which contains any
-        // FDW-private information provided by GetForeignPlan).
-        ForeignScan *plan = reinterpret_cast<ForeignScan *>(node->ss.ps.plan);
-        if (plan->fdw_private)
-        {
-            query_data.set_limit( lfirst_int(plan->fdw_private->head) );
-        }
-
-        // Schema
-        query_data.set_schema(getTableOption("schema", foreign_table_id));
-
-        // UserToken
-
-        // AccessInfo
-
-        // Prepare for getting data
-        current_provider->send_query(reinterpret_cast<long>(node),
-                                     query_data);
+        
+        cell = cell->next;
+      }
+      
+      // Filters
+      foreach(l, node->ss.ps.plan->qual)
+      {
+        Expr* clause = (Expr*) lfirst(l);
+        query_data.add_filter( filterChain->apply(clause, meta) );
+      }
+      
+      // Limit
+      // From: http://www.postgresql.org/docs/9.2/static/fdw-callbacks.html
+      // Information about the table to scan is accessible through the ForeignScanState node
+      // (in particular, from the underlying ForeignScan plan node, which contains any
+      // FDW-private information provided by GetForeignPlan).
+      ForeignScan *plan = reinterpret_cast<ForeignScan *>(node->ss.ps.plan);
+      if (plan->fdw_private)
+      {
+        query_data.set_limit( lfirst_int(plan->fdw_private->head) );
+      }
+      
+      // Schema
+      query_data.set_schema(getTableOption("schema", foreign_table_id));
+      
+      // UserToken
+      
+      // AccessInfo
+      
+      // Prepare for getting data
+      current_provider->send_query(reinterpret_cast<long>(node),
+                                   query_data);
     }
     catch(const std::exception & e)
     {
-	onError(e.what());
+      onError(e.what());
     }
-}
+  }
 
-
-static TupleTableSlot *
-cbIterateForeignScan(ForeignScanState *node)
-{
+  static TupleTableSlot *
+  cbIterateForeignScan(ForeignScanState *node)
+  {
     struct AttInMetadata * meta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
     auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
     try
     {
-        auto current_provider = getProvider(foreign_table_id);
-        // LOG_SCOPED(P_(current_provider.get()));
-
-        if( !current_provider ) { THROW_("current p has invalid value"); }
-
-        auto handler = current_provider->get_data_handler(reinterpret_cast<long>(node));
-
-        if( !handler ) { THROW_("handler has invalid value"); }
-
+      auto current_provider = getProvider(foreign_table_id);
+      // LOG_SCOPED(P_(current_provider.get()));
+      
+      if( !current_provider ) { THROW_("current p has invalid value"); }
+      
+      auto handler = current_provider->get_data_handler(reinterpret_cast<long>(node));
+      
+      if( !handler ) { THROW_("handler has invalid value"); }
+      
+      {
+        feeder & fdr = handler->get_feeder();
+        TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
+        ExecClearTuple(slot);
+        
+        if( !fdr.started() )
         {
-            feeder & fdr = handler->get_feeder();
-            TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
-            ExecClearTuple(slot);
-
-            if( !fdr.started() )
-            {
-                // try to gather first block
-                if( !fdr.fetch_next() )
-                    return nullptr;
-            }
-            else if( !fdr.has_more() )
-            {
-                // try to gather next block
-                if( !fdr.fetch_next() )
-                    return nullptr;
-            }
-
-            for (auto const & cid : handler->column_id_map() )
-            {
-                int column_id        = cid.first;
-                size_t query_col_id  = cid.second;
-                bool is_null         = false; 
-
-                slot->tts_isnull[column_id] = true;
-
-                switch( meta->tupdesc->attrs[column_id]->atttypid )
-                {
-                    case VARCHAROID:
-                    {
-                        char * ptr = nullptr;
-                        size_t len = 0;
-                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
-                          return nullptr;
-
-                        slot->tts_isnull[column_id] = is_null;
-                        if( !is_null )
-                        {
-                          if (len < VARATT_SHORT_MAX-VARHDRSZ_SHORT)
-                          {
-                            // lucky case: we can reuse the leading tag and length data from the string
-                            bytea *vcdata = reinterpret_cast<bytea *>(ptr-VARHDRSZ_SHORT);
-                            SET_VARSIZE_SHORT(vcdata, len + VARHDRSZ_SHORT);
-                            slot->tts_values[column_id] = PointerGetDatum(vcdata);
-                          }
-                          else
-                          {
-                            // bad case: we need to allocate and copy
-                            bytea *vcdata = reinterpret_cast<bytea *>(palloc(len + VARHDRSZ));
-                            ::memcpy( VARDATA(vcdata), ptr, len );
-                            SET_VARSIZE(vcdata, len + VARHDRSZ);
-                            slot->tts_values[column_id] = PointerGetDatum(vcdata);
-                          }
-                          /*
-                          if( len > 0 && ptr != nullptr )
-                          {
-                            ptr[len] = 0;
-                            slot->tts_values[column_id] = CStringGetDatum(ptr);
-                          }
-                          else
-                          {
-                            slot->tts_values[column_id] = CStringGetDatum("");
-                          }
-                          */
-                        }
-                        break;
-                    }
-                    case INT4OID:
-                    {
-                        int32_t val = 0;
-                        if( fdr.read_int32(query_col_id, val, is_null) != feeder::vtr::ok_ )
-                          return nullptr;
-
-                        slot->tts_isnull[column_id] = is_null;
-                        if( !is_null )
-                          slot->tts_values[column_id] = Int32GetDatum(val); 
-                        break;
-                    }
-                    case INT8OID:
-                    {
-                        int64_t val = 0;
-                        if( fdr.read_int64(query_col_id, val, is_null) != feeder::vtr::ok_ )
-                          return nullptr;
-
-                        slot->tts_isnull[column_id] = is_null;
-                        if( !is_null )
-                          slot->tts_values[column_id] = Int64GetDatum(val); 
-                        break;
-                    }
-                    case FLOAT8OID:
-                    {
-                        double val = 0;
-                        if( fdr.read_double(query_col_id, val, is_null) != feeder::vtr::ok_ )
-                          return nullptr;
-
-                        slot->tts_isnull[column_id] = is_null;
-                        if( !is_null )
-                          slot->tts_values[column_id] = Float8GetDatum(val); 
-                        break;
-                    }
-                    case FLOAT4OID:
-                    {
-                        float val = 0;
-                        if( fdr.read_float(query_col_id, val, is_null) != feeder::vtr::ok_ )
-                          return nullptr;
-
-                        slot->tts_isnull[column_id] = is_null;
-                        if( !is_null )
-                          slot->tts_values[column_id] = Float4GetDatum(val); 
-                        break;
-                    }
-                    case NUMERICOID:
-                    {
-    
-                        char * ptr = nullptr;
-                        size_t len = 0;
-                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
-                          return nullptr;
-
-                        slot->tts_isnull[column_id] = is_null;
-                        if( !is_null )
-                        {
-                          ptr[len] = 0;
-                          slot->tts_values[column_id] =
-                                DirectFunctionCall3( numeric_in,
-                                    CStringGetDatum(ptr),
-                                    ObjectIdGetDatum(InvalidOid),
-                                    Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
-                        }
-                        break;
-                    }
-                    case DATEOID:
-                    {
-                        char * ptr = nullptr;
-                        size_t len = 0;
-                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
-                          return nullptr;
-
-                        slot->tts_isnull[column_id] = is_null;
-                        if( !is_null )
-                        {
-                          ptr[len] = 0;
-                          slot->tts_values[column_id] = DirectFunctionCall1( date_in, CStringGetDatum(ptr));
-                        }
-                        break;
-		    }
-                    case TIMESTAMPOID: 
-                    {
-                        char * ptr = nullptr;
-                        size_t len = 0;
-                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
-                          return nullptr;
-
-                        slot->tts_isnull[column_id] = is_null;
-                        if( !is_null )
-                        {
-                          ptr[len] = 0;
-                          slot->tts_values[column_id] =
-                                DirectFunctionCall3(timestamp_in,
-                                    CStringGetDatum(ptr),
-                                    ObjectIdGetDatum(InvalidOid),
-                                    Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
-                        }
-                        break;
-		    }
-                    case TIMEOID:
-                    {
-                        char * ptr = nullptr;
-                        size_t len = 0;
-                        if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
-                          return nullptr;
-
-                        slot->tts_isnull[column_id] = is_null;
-                        if( !is_null )
-                        {
-                          ptr[len] = 0;
-                          slot->tts_values[column_id] = DirectFunctionCall1( time_in, CStringGetDatum(ptr));
-                        }
-                        break;
-		    }
-                    default: {
-                        LOG_ERROR("Unhandled attribute type: " << V_(meta->tupdesc->attrs[column_id]->atttypid));
-                        break;
-                    }
-                }
-            }
-            ExecStoreVirtualTuple(slot);
-            return slot;
+          // try to gather first block
+          if( !fdr.fetch_next() )
+            return nullptr;
         }
+        else if( !fdr.has_more() )
+        {
+          // try to gather next block
+          if( !fdr.fetch_next() )
+            return nullptr;
+        }
+        
+        for (auto const & cid : handler->column_id_map() )
+        {
+          int column_id        = cid.first;
+          size_t query_col_id  = cid.second;
+          bool is_null         = false;
+          
+          slot->tts_isnull[column_id] = true;
+          
+          switch( meta->tupdesc->attrs[column_id]->atttypid )
+          {
+            case VARCHAROID:
+            {
+              char * ptr = nullptr;
+              size_t len = 0;
+              if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                return nullptr;
+              
+              slot->tts_isnull[column_id] = is_null;
+              if( !is_null )
+              {
+                if (len < VARATT_SHORT_MAX-VARHDRSZ_SHORT)
+                {
+                  // lucky case: we can reuse the leading tag and length data from the string
+                  bytea *vcdata = reinterpret_cast<bytea *>(ptr-VARHDRSZ_SHORT);
+                  SET_VARSIZE_SHORT(vcdata, len + VARHDRSZ_SHORT);
+                  slot->tts_values[column_id] = PointerGetDatum(vcdata);
+                }
+                else
+                {
+                  // bad case: we need to allocate and copy
+                  bytea *vcdata = reinterpret_cast<bytea *>(palloc(len + VARHDRSZ));
+                  ::memcpy( VARDATA(vcdata), ptr, len );
+                  SET_VARSIZE(vcdata, len + VARHDRSZ);
+                  slot->tts_values[column_id] = PointerGetDatum(vcdata);
+                }
+              }
+              break;
+            }
+            case INT4OID:
+            {
+              int32_t val = 0;
+              if( fdr.read_int32(query_col_id, val, is_null) != feeder::vtr::ok_ )
+                return nullptr;
+              
+              slot->tts_isnull[column_id] = is_null;
+              if( !is_null )
+                slot->tts_values[column_id] = Int32GetDatum(val);
+              break;
+            }
+            case INT8OID:
+            {
+              int64_t val = 0;
+              if( fdr.read_int64(query_col_id, val, is_null) != feeder::vtr::ok_ )
+                return nullptr;
+              
+              slot->tts_isnull[column_id] = is_null;
+              if( !is_null )
+                slot->tts_values[column_id] = Int64GetDatum(val);
+              break;
+            }
+            case FLOAT8OID:
+            {
+              double val = 0;
+              if( fdr.read_double(query_col_id, val, is_null) != feeder::vtr::ok_ )
+                return nullptr;
+              
+              slot->tts_isnull[column_id] = is_null;
+              if( !is_null )
+                slot->tts_values[column_id] = Float8GetDatum(val);
+              break;
+            }
+            case FLOAT4OID:
+            {
+              float val = 0;
+              if( fdr.read_float(query_col_id, val, is_null) != feeder::vtr::ok_ )
+                return nullptr;
+              
+              slot->tts_isnull[column_id] = is_null;
+              if( !is_null )
+                slot->tts_values[column_id] = Float4GetDatum(val);
+              break;
+            }
+            case NUMERICOID:
+            {
+              
+              char * ptr = nullptr;
+              size_t len = 0;
+              if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                return nullptr;
+              
+              slot->tts_isnull[column_id] = is_null;
+              if( !is_null )
+              {
+                ptr[len] = 0;
+                slot->tts_values[column_id] =
+                DirectFunctionCall3( numeric_in,
+                                    CStringGetDatum(ptr),
+                                    ObjectIdGetDatum(InvalidOid),
+                                    Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
+              }
+              break;
+            }
+            case DATEOID:
+            {
+              char * ptr = nullptr;
+              size_t len = 0;
+              if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                return nullptr;
+              
+              slot->tts_isnull[column_id] = is_null;
+              if( !is_null )
+              {
+                ptr[len] = 0;
+                slot->tts_values[column_id] = DirectFunctionCall1( date_in, CStringGetDatum(ptr));
+              }
+              break;
+            }
+            case TIMESTAMPOID:
+            {
+              char * ptr = nullptr;
+              size_t len = 0;
+              if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                return nullptr;
+              
+              slot->tts_isnull[column_id] = is_null;
+              if( !is_null )
+              {
+                ptr[len] = 0;
+                slot->tts_values[column_id] =
+                DirectFunctionCall3(timestamp_in,
+                                    CStringGetDatum(ptr),
+                                    ObjectIdGetDatum(InvalidOid),
+                                    Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
+              }
+              break;
+            }
+            case TIMEOID:
+            {
+              char * ptr = nullptr;
+              size_t len = 0;
+              if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+                return nullptr;
+              
+              slot->tts_isnull[column_id] = is_null;
+              if( !is_null )
+              {
+                ptr[len] = 0;
+                slot->tts_values[column_id] = DirectFunctionCall1( time_in, CStringGetDatum(ptr));
+              }
+              break;
+            }
+            default: {
+              LOG_ERROR("Unhandled attribute type: " << V_(meta->tupdesc->attrs[column_id]->atttypid));
+              break;
+            }
+          }
+        }
+        ExecStoreVirtualTuple(slot);
+        return slot;
+      }
     }
     catch(const std::exception& e)
     {
-	onError(e.what());
-	return nullptr;
+      onError(e.what());
+      return nullptr;
     }
-}
+  }
+
 
   static void
   cbReScanForeignScan( ForeignScanState *node )
@@ -780,6 +761,9 @@ cbIterateForeignScan(ForeignScanState *node)
     {
       try
       {
+        /* this doesn't ever happen to be in the middle of the query, so
+         * this would be better removed from here ....
+         */
         auto table_name = getTableOption("remotename", foreign_table_id);
         current_provider->stop_query(table_name,
                                      reinterpret_cast<long>(node));
@@ -791,8 +775,8 @@ cbIterateForeignScan(ForeignScanState *node)
       }
     }
   }
-
 }
+
 // C++ implementation of the forward declared function
 extern "C" {
 
