@@ -141,7 +141,7 @@ namespace virtdb_fdw_priv {
     void
     stop_query(const std::string& table_name,
                long node,
-               const std::string& segment_id)
+               const std::string& segment_id="")
     {
       worker_thread_->stop_query(table_name,
                                  query_push_client_,
@@ -705,62 +705,69 @@ cbIterateForeignScan(ForeignScanState *node)
     }
 }
 
-static void
-cbReScanForeignScan( ForeignScanState *node )
-{
+  static void
+  cbReScanForeignScan( ForeignScanState *node )
+  {
     cbBeginForeignScan(node, 0);
-}
+  }
 
-static void
-cbEndForeignScan(ForeignScanState *node)
-{
+  static void
+  cbEndForeignScan(ForeignScanState *node)
+  {
     auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
     auto current_provider = getProvider(foreign_table_id);
-    current_provider->remove_query(reinterpret_cast<long>(node));
-}
+    if( current_provider )
+    {
+      auto table_name = getTableOption("remotename", foreign_table_id);
+      current_provider->stop_query(table_name,
+                                   reinterpret_cast<long>(node));
+      current_provider->remove_query(reinterpret_cast<long>(node));
+    }
+  }
 
 }
 // C++ implementation of the forward declared function
 extern "C" {
 
-void PG_init_virtdb_fdw_cpp(void)
-{
-}
+  void PG_init_virtdb_fdw_cpp(void)
+  {
+    // TODO : check: can't we connect to log and endpoint here
+  }
+  
+  void PG_fini_virtdb_fdw_cpp(void)
+  {
+    // TODO : check: can't we connect to log and endpoint here
+  }
 
-void PG_fini_virtdb_fdw_cpp(void)
-{
-}
-
-Datum virtdb_fdw_status_cpp(PG_FUNCTION_ARGS)
-{
+  Datum virtdb_fdw_status_cpp(PG_FUNCTION_ARGS)
+  {
     char * v = (char *)palloc(4);
     strcpy(v,"XX!");
     PG_RETURN_CSTRING(v);
-}
+  }
 
-struct fdwOption
-{
+  struct fdwOption
+  {
     std::string   option_name;
     Oid		      option_context;
-};
+  };
 
-static struct fdwOption valid_options[] =
-{
-
-	/* Connection options */
-	{ "url",  ForeignDataWrapperRelationId },
+  static struct fdwOption valid_options[] =
+  {
+    /* Connection options */
+    { "url",  ForeignDataWrapperRelationId },
     { "provider", ForeignTableRelationId },
     { "schema", ForeignTableRelationId },
     { "remotename", ForeignTableRelationId },
+    /* Sentinel */
+    { "",	InvalidOid }
+  };
 
-	/* Sentinel */
-	{ "",	InvalidOid }
-};
-
-Datum virtdb_fdw_handler_cpp(PG_FUNCTION_ARGS)
-{
+  Datum
+  virtdb_fdw_handler_cpp(PG_FUNCTION_ARGS)
+  {
     FdwRoutine *fdw_routine = makeNode(FdwRoutine);
-
+    
     // must define these
     fdw_routine->GetForeignRelSize    = virtdb_fdw_priv::cbGetForeignRelSize;
     fdw_routine->GetForeignPaths      = virtdb_fdw_priv::cbGetForeignPaths;
@@ -769,7 +776,7 @@ Datum virtdb_fdw_handler_cpp(PG_FUNCTION_ARGS)
     fdw_routine->IterateForeignScan   = virtdb_fdw_priv::cbIterateForeignScan;
     fdw_routine->ReScanForeignScan    = virtdb_fdw_priv::cbReScanForeignScan;
     fdw_routine->EndForeignScan       = virtdb_fdw_priv::cbEndForeignScan;
-
+    
     // optional fields will be nullptr for now
     fdw_routine->AddForeignUpdateTargets  = nullptr;
     fdw_routine->PlanForeignModify        = nullptr;
@@ -778,50 +785,52 @@ Datum virtdb_fdw_handler_cpp(PG_FUNCTION_ARGS)
     fdw_routine->ExecForeignUpdate        = nullptr;
     fdw_routine->ExecForeignDelete        = nullptr;
     fdw_routine->EndForeignModify         = nullptr;
-
+    
     // optional EXPLAIN support is also omitted
     fdw_routine->ExplainForeignScan    = nullptr;
     fdw_routine->ExplainForeignModify  = nullptr;
-
+    
     // optional ANALYZE support is also omitted
     fdw_routine->AnalyzeForeignTable  = nullptr;
-
+    
     PG_RETURN_POINTER(fdw_routine);
-}
+  }
 
-static bool
-is_valid_option(std::string option, Oid context)
-{
+  static bool
+  is_valid_option(std::string option, Oid context)
+  {
     for (auto opt : valid_options)
-	{
-		if (context == opt.option_context && opt.option_name == option)
-			return true;
-	}
-	return false;
-}
+    {
+      if (context == opt.option_context && opt.option_name == option)
+        return true;
+    }
+    return false;
+  }
 
-Datum virtdb_fdw_validator_cpp(PG_FUNCTION_ARGS)
-{
+  Datum
+  virtdb_fdw_validator_cpp(PG_FUNCTION_ARGS)
+  {
     elog(LOG, "virtdb_fdw_validator_cpp");
     List      *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
     Oid       catalog = PG_GETARG_OID(1);
     ListCell  *cell;
     foreach(cell, options_list)
-	{
-        DefElem	   *def = (DefElem *) lfirst(cell);
-        std::string option_name = def->defname;
-        if (!is_valid_option(option_name, catalog))
-        {
-            LOG_ERROR("Invalid option." << V_(option_name));
-        }
-        elog(LOG, "Option name: %s", option_name.c_str());
-        if (option_name == "url")
-        {
-            elog(LOG, "Config server url in validator: %s", defGetString(def));
-        }
+    {
+      DefElem	   *def = (DefElem *) lfirst(cell);
+      std::string option_name = def->defname;
+      if (!is_valid_option(option_name, catalog))
+      {
+        LOG_ERROR("Invalid option." << V_(option_name));
+      }
+      elog(LOG, "Option name: %s", option_name.c_str());
+      if (option_name == "url")
+      {
+        // TODO : check: can't we connect to log and endpoint here
+        elog(LOG, "Config server url in validator: %s", defGetString(def));
+      }
     }
     PG_RETURN_VOID();
-}
+  }
 
 } // end of virtdb_fdw_priv
 
