@@ -131,11 +131,18 @@ namespace virtdb_fdw_priv {
     send_query(long node,
                const virtdb::engine::query& query)
     {
-      worker_thread_->send_query(query_push_client_,
-                                 column_sub_client_,
-                                 node,
-                                 query);
-                                 
+      if( worker_thread_ && query_push_client_ && column_sub_client_ )
+      {
+        worker_thread_->send_query(query_push_client_,
+                                   column_sub_client_,
+                                   node,
+                                   query);
+        // LOG_TRACE("send query for" << V_((int64_t)node) << P_(this) << V_(query.table_name()));
+      }
+      else
+      {
+        THROW_("cannot send query, invalid state");
+      }
     }
     
     void
@@ -143,17 +150,49 @@ namespace virtdb_fdw_priv {
                long node,
                const std::string& segment_id="")
     {
-      worker_thread_->stop_query(table_name,
-                                 query_push_client_,
-                                 node,
-                                 segment_id);
+      if( worker_thread_ && query_push_client_ )
+      {
+        worker_thread_->stop_query(table_name,
+                                   query_push_client_,
+                                   node,
+                                   segment_id);
+        // LOG_TRACE("stopped query for" << V_((int64_t)node) << P_(this) << V_(table_name));
+      }
+      else
+      {
+        THROW_("cannot stop query, invalid state");
+      }
     }
     
     void
     remove_query(long node)
     {
-      worker_thread_->remove_query(column_sub_client_,
-                                   node);
+      if( worker_thread_ && column_sub_client_ )
+      {
+        worker_thread_->remove_query(column_sub_client_,
+                                     node);
+        // LOG_TRACE("removed query for" << V_((int64_t)node) << P_(this));
+      }
+      else
+      {
+        THROW_("cannot stop query, invalid state");
+      }
+    }
+
+    receiver_thread::handler_sptr
+    get_data_handler(long node)
+    {
+      receiver_thread::handler_sptr ret;
+      if( worker_thread_ )
+      {
+        ret = worker_thread_->get_data_handler(node);
+        // LOG_TRACE("data handler for" << V_((int64_t)node) << P_(this) << P_(ret.get()));
+      }
+      else
+      {
+        THROW_("cannot get handler. invalid state");
+      }
+      return ret;
     }
     
     ~provider() {}
@@ -217,11 +256,19 @@ namespace virtdb_fdw_priv {
       
       auto it = providers.find(name);
       
-      if( it != providers.end() )
+      if( it == providers.end() )
+      {
+        // LOG_TRACE("creating new provider for" << V_((int64_t)foreigntableid) << V_(name));
         current_provider.reset(new provider{name, ep_client});
+        providers[name] = current_provider;
+      }
       else
+      {
         current_provider = it->second;
+      }
       
+      // LOG_TRACE("returning provider for" << V_((int64_t)foreigntableid) << V_(name) << P_(current_provider.get()));
+
       return current_provider;
     }
     catch(const std::exception & e)
@@ -407,6 +454,12 @@ cbBeginForeignScan( ForeignScanState *node,
         auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
         virtdb::engine::query query_data;
         auto current_provider = getProvider(foreign_table_id);
+        // LOG_SCOPED(P_(current_provider.get()));
+
+        if( !current_provider )
+        {
+          THROW_("invalid provider object. not initialized");
+        }
 
         // Table name
         auto table_name = getTableOption("remotename", foreign_table_id);
@@ -504,10 +557,17 @@ cbIterateForeignScan(ForeignScanState *node)
 {
     struct AttInMetadata * meta = TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
     auto foreign_table_id = RelationGetRelid(node->ss.ss_currentRelation);
-    auto current_provider = getProvider(foreign_table_id);
-    auto handler = current_provider->worker_thread()->get_data_handler(reinterpret_cast<long>(node));
     try
     {
+        auto current_provider = getProvider(foreign_table_id);
+        // LOG_SCOPED(P_(current_provider.get()));
+
+        if( !current_provider ) { THROW_("current p has invalid value"); }
+
+        auto handler = current_provider->get_data_handler(reinterpret_cast<long>(node));
+
+        if( !handler ) { THROW_("handler has invalid value"); }
+
         {
             feeder & fdr = handler->get_feeder();
             TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
@@ -718,10 +778,17 @@ cbIterateForeignScan(ForeignScanState *node)
     auto current_provider = getProvider(foreign_table_id);
     if( current_provider )
     {
-      auto table_name = getTableOption("remotename", foreign_table_id);
-      current_provider->stop_query(table_name,
-                                   reinterpret_cast<long>(node));
-      current_provider->remove_query(reinterpret_cast<long>(node));
+      try
+      {
+        auto table_name = getTableOption("remotename", foreign_table_id);
+        current_provider->stop_query(table_name,
+                                     reinterpret_cast<long>(node));
+        current_provider->remove_query(reinterpret_cast<long>(node));
+      }
+      catch(const std::exception & e)
+      {
+        onError(e.what());
+      }
     }
   }
 
