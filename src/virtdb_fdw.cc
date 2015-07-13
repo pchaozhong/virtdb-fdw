@@ -78,14 +78,14 @@ namespace virtdb_fdw_priv {
     receiver_thread::sptr   worker_thread_;
     query_client::sptr      query_push_client_;
     column_client::sptr     column_sub_client_;
-    
+
     provider() = delete;
     provider(const provider &) = delete;
     provider & operator=(const provider &) = delete;
-    
+
   public:
     typedef std::shared_ptr<provider> sptr;
-    
+
     provider(const std::string name,
              endpoint_client::sptr epcli_sptr)
     : name_{name},
@@ -96,37 +96,37 @@ namespace virtdb_fdw_priv {
       column_sub_client_{new column_client{cli_ctx_, *ep_cli_, name}}
     {
       uint64_t timeout_ms = 10000;
-      
+
       if( !query_push_client_->wait_valid(timeout_ms) )
       {
         LOG_ERROR("failed to connect query client" <<
                   V_(ep_client->name()) <<
                   V_(name) <<
                   V_(timeout_ms));
-        
+
         THROW_("failed to connect query client");
       }
-      
+
       if( !column_sub_client_->wait_valid(timeout_ms) )
       {
         LOG_ERROR("failed to connect column client" <<
                   V_(ep_client->name()) <<
                   V_(name) <<
                   V_(timeout_ms));
-        
+
         THROW_("failed to connect column client");
       }
-      
+
       // rethrow errors if any
       column_sub_client_->rethrow_error();
     }
-    
+
     const std::string & name() const { return name_; }
-    
+
     receiver_thread::sptr   worker_thread()     { return worker_thread_; }
     query_client::sptr      query_push_client() { return query_push_client_; }
     column_client::sptr     column_sub_client() { return column_sub_client_; }
-    
+
     void
     send_query(long node,
                const virtdb::engine::query& query)
@@ -143,7 +143,7 @@ namespace virtdb_fdw_priv {
         THROW_("cannot send query, invalid state");
       }
     }
-    
+
     void
     stop_query(const std::string& table_name,
                long node,
@@ -161,7 +161,7 @@ namespace virtdb_fdw_priv {
         THROW_("cannot stop query, invalid state");
       }
     }
-    
+
     void
     remove_query(long node)
     {
@@ -190,7 +190,7 @@ namespace virtdb_fdw_priv {
       }
       return ret;
     }
-    
+
     ~provider() {}
   };
 
@@ -249,9 +249,9 @@ namespace virtdb_fdw_priv {
       uint64_t timeout = 10000;
       std::string name = getTableOption("provider",
                                         foreigntableid);
-      
+
       auto it = providers.find(name);
-      
+
       if( it == providers.end() )
       {
         current_provider.reset(new provider{name, ep_client});
@@ -261,7 +261,7 @@ namespace virtdb_fdw_priv {
       {
         current_provider = it->second;
       }
-      
+
       return current_provider;
     }
     catch(const std::exception & e)
@@ -281,7 +281,7 @@ namespace virtdb_fdw_priv {
     {
       uint64_t timeout = 10000;
       client_context::sptr cli_ctx{new client_context};
-      
+
       // TODO : move this to module load / initialization
       if (ep_client == nullptr)
       {
@@ -292,23 +292,23 @@ namespace virtdb_fdw_priv {
           ep_client.reset(new endpoint_client(cli_ctx, config_server_url, "postgres_generic_fdw"));
         }
       }
-      
+
       // TODO : move this to module load / initialization
       if (log_client == nullptr)
       {
         log_client.reset(new log_record_client(cli_ctx, *ep_client, "diag-service"));
-        
+
         if( !log_client->wait_valid_push(timeout) )
         {
           LOG_ERROR("failed to connect log client" <<
                     V_(ep_client->name()) <<
                     V_(ep_client->service_ep()) <<
                     V_(timeout));
-          
+
           THROW_("failed to connect log client");
         }
       }
-      
+
       ep_client->rethrow_error();
       log_client->rethrow_error();
     }
@@ -327,7 +327,7 @@ namespace virtdb_fdw_priv {
   {
     Cost startup_cost = 0;
     Cost total_cost = startup_cost + baserel->rows * baserel->width;
-    
+
     add_path(baserel,
              reinterpret_cast<Path *>(create_foreignscan_path(root,
                                                               baserel,
@@ -358,7 +358,7 @@ namespace virtdb_fdw_priv {
       elog(LOG, "[%s] - Length of clauses BEFORE extraction: %d",
            __func__, scan_clauses->length);
     }
-    
+
     // Remove pseudo-constant clauses
     scan_clauses = extract_actual_clauses(scan_clauses, false);
     if (scan_clauses != nullptr)
@@ -366,7 +366,7 @@ namespace virtdb_fdw_priv {
       elog(LOG, "[%s] - Length of clauses AFTER extraction: %d",
            __func__, scan_clauses->length);
     }
-    
+
     // 1. make sure floating point representation doesn't trick us
     // 2. only set the limit if this is a single table
     List* limit = nullptr;
@@ -375,7 +375,7 @@ namespace virtdb_fdw_priv {
     {
       limit = list_make1_int(0.1+root->limit_tuples);
     }
-    
+
     ForeignScan * ret =
     make_foreignscan(
                      tlist,
@@ -383,7 +383,7 @@ namespace virtdb_fdw_priv {
                      scan_relid,
                      NIL,
                      limit);
-    
+
     return ret;
   }
 
@@ -447,16 +447,16 @@ namespace virtdb_fdw_priv {
       virtdb::engine::query query_data;
       auto current_provider = getProvider(foreign_table_id);
       // LOG_SCOPED(P_(current_provider.get()));
-      
+
       if( !current_provider )
       {
         THROW_("invalid provider object. not initialized");
       }
-      
+
       // Table name
       auto table_name = getTableOption("remotename", foreign_table_id);
       query_data.set_table_name(table_name);
-      
+
       // Columns
       int n = node->ss.ps.plan->targetlist->length;
       ListCell* cell = node->ss.ps.plan->targetlist->head;
@@ -468,7 +468,7 @@ namespace virtdb_fdw_priv {
         }
         Expr* expr = reinterpret_cast<Expr*> (lfirst(cell));
         const Var* variable = get_variable(expr);
-        
+
         if (variable != nullptr )
         {
           if( variable->varattno <= meta->tupdesc->natts )
@@ -504,17 +504,17 @@ namespace virtdb_fdw_priv {
         {
           elog(LOG, "VIRTDB WARN: variable is null");
         }
-        
+
         cell = cell->next;
       }
-      
+
       // Filters
       foreach(l, node->ss.ps.plan->qual)
       {
         Expr* clause = (Expr*) lfirst(l);
         query_data.add_filter( filterChain->apply(clause, meta) );
       }
-      
+
       // Limit
       // From: http://www.postgresql.org/docs/9.2/static/fdw-callbacks.html
       // Information about the table to scan is accessible through the ForeignScanState node
@@ -525,14 +525,26 @@ namespace virtdb_fdw_priv {
       {
         query_data.set_limit( lfirst_int(plan->fdw_private->head) );
       }
-      
+
       // Schema
       query_data.set_schema(getTableOption("schema", foreign_table_id));
-      
+
       // UserToken
-      
+      auto* table = GetForeignTable(foreign_table_id);
+      auto* mapping = GetUserMapping(GetUserId(), table->serverid);
+      foreach(cell, mapping->options)
+      {
+          DefElem	   *def = (DefElem *) lfirst(cell);
+          std::string option_name = def->defname;
+          if (option_name == "token")
+          {
+              std::string value = defGetString(def);
+              LOG_INFO("Options: " << V_(option_name) << V_(value));
+          }
+      }
+
       // AccessInfo
-      
+
       // Prepare for getting data
       current_provider->send_query(reinterpret_cast<long>(node),
                                    query_data);
@@ -552,18 +564,18 @@ namespace virtdb_fdw_priv {
     {
       auto current_provider = getProvider(foreign_table_id);
       // LOG_SCOPED(P_(current_provider.get()));
-      
+
       if( !current_provider ) { THROW_("current p has invalid value"); }
-      
+
       auto handler = current_provider->get_data_handler(reinterpret_cast<long>(node));
-      
+
       if( !handler ) { THROW_("handler has invalid value"); }
-      
+
       {
         feeder & fdr = handler->get_feeder();
         TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
         ExecClearTuple(slot);
-        
+
         if( !fdr.started() )
         {
           // try to gather first block
@@ -576,15 +588,15 @@ namespace virtdb_fdw_priv {
           if( !fdr.fetch_next() )
             return nullptr;
         }
-        
+
         for (auto const & cid : handler->column_id_map() )
         {
           int column_id        = cid.first;
           size_t query_col_id  = cid.second;
           bool is_null         = false;
-          
+
           slot->tts_isnull[column_id] = true;
-          
+
           switch( meta->tupdesc->attrs[column_id]->atttypid )
           {
             case VARCHAROID:
@@ -593,7 +605,7 @@ namespace virtdb_fdw_priv {
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
                 return nullptr;
-              
+
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
               {
@@ -620,7 +632,7 @@ namespace virtdb_fdw_priv {
               int32_t val = 0;
               if( fdr.read_int32(query_col_id, val, is_null) != feeder::vtr::ok_ )
                 return nullptr;
-              
+
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
                 slot->tts_values[column_id] = Int32GetDatum(val);
@@ -631,7 +643,7 @@ namespace virtdb_fdw_priv {
               int64_t val = 0;
               if( fdr.read_int64(query_col_id, val, is_null) != feeder::vtr::ok_ )
                 return nullptr;
-              
+
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
                 slot->tts_values[column_id] = Int64GetDatum(val);
@@ -642,7 +654,7 @@ namespace virtdb_fdw_priv {
               double val = 0;
               if( fdr.read_double(query_col_id, val, is_null) != feeder::vtr::ok_ )
                 return nullptr;
-              
+
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
                 slot->tts_values[column_id] = Float8GetDatum(val);
@@ -653,7 +665,7 @@ namespace virtdb_fdw_priv {
               float val = 0;
               if( fdr.read_float(query_col_id, val, is_null) != feeder::vtr::ok_ )
                 return nullptr;
-              
+
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
                 slot->tts_values[column_id] = Float4GetDatum(val);
@@ -661,12 +673,12 @@ namespace virtdb_fdw_priv {
             }
             case NUMERICOID:
             {
-              
+
               char * ptr = nullptr;
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
                 return nullptr;
-              
+
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
               {
@@ -685,7 +697,7 @@ namespace virtdb_fdw_priv {
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
                 return nullptr;
-              
+
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
               {
@@ -700,7 +712,7 @@ namespace virtdb_fdw_priv {
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
                 return nullptr;
-              
+
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
               {
@@ -719,7 +731,7 @@ namespace virtdb_fdw_priv {
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
                 return nullptr;
-              
+
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
               {
@@ -784,7 +796,7 @@ extern "C" {
   {
     // TODO : check: can't we connect to log and endpoint here
   }
-  
+
   void PG_fini_virtdb_fdw_cpp(void)
   {
     // TODO : check: can't we connect to log and endpoint here
@@ -818,7 +830,7 @@ extern "C" {
   virtdb_fdw_handler_cpp(PG_FUNCTION_ARGS)
   {
     FdwRoutine *fdw_routine = makeNode(FdwRoutine);
-    
+
     // must define these
     fdw_routine->GetForeignRelSize    = virtdb_fdw_priv::cbGetForeignRelSize;
     fdw_routine->GetForeignPaths      = virtdb_fdw_priv::cbGetForeignPaths;
@@ -827,7 +839,7 @@ extern "C" {
     fdw_routine->IterateForeignScan   = virtdb_fdw_priv::cbIterateForeignScan;
     fdw_routine->ReScanForeignScan    = virtdb_fdw_priv::cbReScanForeignScan;
     fdw_routine->EndForeignScan       = virtdb_fdw_priv::cbEndForeignScan;
-    
+
     // optional fields will be nullptr for now
     fdw_routine->AddForeignUpdateTargets  = nullptr;
     fdw_routine->PlanForeignModify        = nullptr;
@@ -836,14 +848,14 @@ extern "C" {
     fdw_routine->ExecForeignUpdate        = nullptr;
     fdw_routine->ExecForeignDelete        = nullptr;
     fdw_routine->EndForeignModify         = nullptr;
-    
+
     // optional EXPLAIN support is also omitted
     fdw_routine->ExplainForeignScan    = nullptr;
     fdw_routine->ExplainForeignModify  = nullptr;
-    
+
     // optional ANALYZE support is also omitted
     fdw_routine->AnalyzeForeignTable  = nullptr;
-    
+
     PG_RETURN_POINTER(fdw_routine);
   }
 
