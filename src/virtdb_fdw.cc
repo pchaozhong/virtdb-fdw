@@ -481,9 +481,7 @@ namespace virtdb_fdw_priv {
               auto var_attr = tupdesc_attrs[variable->varattno-1];
               if( var_attr )
               {
-                query_data.add_column(col_id,
-                                      getField(var_attr->attname.data,
-                                               var_attr->atttypid));
+                query_data.add_column(col_id, var_attr->attname.data);
               }
               else
               {
