@@ -29,6 +29,7 @@ extern "C" {
     #include <catalog/pg_operator.h>
     #include <catalog/pg_foreign_data_wrapper.h>
     #include <catalog/pg_foreign_table.h>
+    #include <catalog/pg_user_mapping.h>
     #include <access/transam.h>
     #include <access/htup_details.h>
     #include <access/reloptions.h>
@@ -532,13 +533,14 @@ namespace virtdb_fdw_priv {
       auto* mapping = GetUserMapping(GetUserId(), table->serverid);
       foreach(cell, mapping->options)
       {
-          DefElem	   *def = (DefElem *) lfirst(cell);
-          std::string option_name = def->defname;
-          if (option_name == "token")
-          {
-              std::string value = defGetString(def);
-              LOG_INFO("Options: " << V_(option_name) << V_(value));
-          }
+        DefElem  *def = (DefElem *) lfirst(cell);
+        std::string option_name = def->defname;
+        if (option_name == "token")
+        {
+          std::string token = defGetString(def);
+          if( !token.empty() )
+            query_data.set_usertoken(token);
+        }
       }
 
       // AccessInfo
