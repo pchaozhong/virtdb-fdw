@@ -580,13 +580,19 @@ namespace virtdb_fdw_priv {
         {
           // try to gather first block
           if( !fdr.fetch_next() )
+          {
+            LOG_TRACE("fetch_next=false started=false. cannot gather first block.");
             return nullptr;
+          }
         }
         else if( !fdr.has_more() )
         {
           // try to gather next block
           if( !fdr.fetch_next() )
+          {
+            LOG_TRACE("fetch_next=false started=true. cannot gather next block.");
             return nullptr;
+          }
         }
 
         for (auto const & cid : handler->column_id_map() )
@@ -604,7 +610,10 @@ namespace virtdb_fdw_priv {
               char * ptr = nullptr;
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+              {
+                LOG_TRACE("read_string failed" << V_(column_id) << V_(query_col_id) << V_(len) << "VARCHAROID");
                 return nullptr;
+              }
 
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
@@ -631,7 +640,15 @@ namespace virtdb_fdw_priv {
             {
               int32_t val = 0;
               if( fdr.read_int32(query_col_id, val, is_null) != feeder::vtr::ok_ )
-                return nullptr;
+              {
+                uint32_t uval = 0;
+                if( fdr.read_uint32(query_col_id, uval, is_null) != feeder::vtr::ok_ )
+                {
+                  LOG_TRACE("read_[u]int32 failed" << V_(column_id) << V_(query_col_id) << "INT4OID");               
+                  return nullptr;
+                }
+                val = uval;
+              }
 
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
@@ -642,7 +659,15 @@ namespace virtdb_fdw_priv {
             {
               int64_t val = 0;
               if( fdr.read_int64(query_col_id, val, is_null) != feeder::vtr::ok_ )
-                return nullptr;
+              {
+                uint64_t uval = 0;
+                if( fdr.read_uint64(query_col_id, uval, is_null) != feeder::vtr::ok_ )
+                {
+                  LOG_TRACE("read_[u]int64 failed" << V_(column_id) << V_(query_col_id) << "INT8OID");                 
+                  return nullptr;
+                }
+                val = uval;
+              }
 
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
@@ -653,7 +678,10 @@ namespace virtdb_fdw_priv {
             {
               double val = 0;
               if( fdr.read_double(query_col_id, val, is_null) != feeder::vtr::ok_ )
+              {
+                LOG_TRACE("read_double failed" << V_(column_id) << V_(query_col_id) << "FLOAT8OID");
                 return nullptr;
+              }
 
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
@@ -664,7 +692,10 @@ namespace virtdb_fdw_priv {
             {
               float val = 0;
               if( fdr.read_float(query_col_id, val, is_null) != feeder::vtr::ok_ )
+              {
+                LOG_TRACE("read_float failed" << V_(column_id) << V_(query_col_id) << "FLOAT4OID");
                 return nullptr;
+              }
 
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
@@ -677,7 +708,10 @@ namespace virtdb_fdw_priv {
               char * ptr = nullptr;
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+              {
+                LOG_TRACE("read_string failed" << V_(column_id) << V_(query_col_id) << V_(len) << "NUMERICOID");
                 return nullptr;
+              }
 
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
@@ -696,7 +730,10 @@ namespace virtdb_fdw_priv {
               char * ptr = nullptr;
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+              {
+                LOG_TRACE("read_string failed" << V_(column_id) << V_(query_col_id) << V_(len) << "DATEOID");
                 return nullptr;
+              }
 
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
@@ -711,7 +748,10 @@ namespace virtdb_fdw_priv {
               char * ptr = nullptr;
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+              {
+                LOG_TRACE("read_string failed" << V_(column_id) << V_(query_col_id) << V_(len) << "TIMESTAMPOID");
                 return nullptr;
+              }
 
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
@@ -730,7 +770,10 @@ namespace virtdb_fdw_priv {
               char * ptr = nullptr;
               size_t len = 0;
               if( fdr.read_string(query_col_id, &ptr, len, is_null) != feeder::vtr::ok_ )
+              {
+                LOG_TRACE("read_string failed" << V_(column_id) << V_(query_col_id) << V_(len) << "TIMEOID");
                 return nullptr;
+              }
 
               slot->tts_isnull[column_id] = is_null;
               if( !is_null )
@@ -761,6 +804,7 @@ namespace virtdb_fdw_priv {
   static void
   cbReScanForeignScan( ForeignScanState *node )
   {
+    // TODO : make this more efficient !
     cbBeginForeignScan(node, 0);
   }
 
@@ -776,9 +820,11 @@ namespace virtdb_fdw_priv {
         /* this doesn't ever happen to be in the middle of the query, so
          * this would be better removed from here ....
          */
+        /* NOTE : Removed because of the lack of Postgres support
         auto table_name = getTableOption("remotename", foreign_table_id);
         current_provider->stop_query(table_name,
                                      reinterpret_cast<long>(node));
+        */
         current_provider->remove_query(reinterpret_cast<long>(node));
       }
       catch(const std::exception & e)
