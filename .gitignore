@@ -47,4 +47,8 @@ tags
 # tmp build
 build-result/
 
+# editor tmp
+*/._*cc
+*/._*hh
+
 Dockerfile
