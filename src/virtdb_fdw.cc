@@ -271,7 +271,7 @@ namespace virtdb_fdw_priv {
     }
     return current_provider;
   }
-
+  
   // We dont't do anything here right now, it is intended only for optimizations.
   static void
   cbGetForeignRelSize( PlannerInfo *root,
@@ -428,8 +428,7 @@ namespace virtdb_fdw_priv {
     }
     return ret;
   }
-
-
+  
   static void
   cbBeginForeignScan( ForeignScanState *node,
                      int eflags )
@@ -458,46 +457,56 @@ namespace virtdb_fdw_priv {
       auto table_name = getTableOption("remotename", foreign_table_id);
       query_data.set_table_name(table_name);
 
+      // Filters
+      std::vector<const Var *> all_variables;
+      foreach(l, node->ss.ps.plan->qual)
+      {
+        Expr* clause = (Expr*) lfirst(l);
+        // make sure we add all columns that are referenced in the query filters
+        get_variable(clause, all_variables);
+        query_data.add_filter( filterChain->apply(clause, meta) );
+      }
+      
       // Columns
+      std::set<engine::column_id_t> added_columns;
       int n = node->ss.ps.plan->targetlist->length;
       ListCell* cell = node->ss.ps.plan->targetlist->head;
-      for (int i = 0; i < n; i++)
+      for (int i = 0; i < n; ++i)
       {
         if (!IsA(lfirst(cell), TargetEntry))
         {
           continue;
         }
         Expr* expr = reinterpret_cast<Expr*> (lfirst(cell));
-        const Var* variable = get_variable(expr);
+        const Var* single_variable = get_variable(expr, all_variables);
 
-        if (variable != nullptr )
-        {
-          if( variable->varattno <= meta->tupdesc->natts )
+        if (single_variable != nullptr )
+        {          
+          for( const Var* variable : all_variables )
           {
-            // elog(LOG, "Column: %s (%d)", meta->tupdesc->attrs[variable->varattno-1]->attname.data, variable->varattno-1);
-            engine::column_id_t col_id = static_cast<engine::column_id_t>(variable->varattno-1);
-            auto tupdesc_attrs = meta->tupdesc->attrs;
-            if( tupdesc_attrs )
+            if( variable->varattno <= meta->tupdesc->natts )
             {
-              auto var_attr = tupdesc_attrs[variable->varattno-1];
-              if( var_attr )
+              // elog(LOG, "Column: %s (%d)", meta->tupdesc->attrs[variable->varattno-1]->attname.data, variable->varattno-1);
+              engine::column_id_t col_id = static_cast<engine::column_id_t>(variable->varattno-1);
+              auto tupdesc_attrs = meta->tupdesc->attrs;
+              if( tupdesc_attrs )
               {
-                query_data.add_column(col_id, var_attr->attname.data);
+                auto var_attr = tupdesc_attrs[variable->varattno-1];
+                if( var_attr )
+                {
+                  if( added_columns.count(col_id) == 0 )
+                  {
+                    query_data.add_column(col_id, var_attr->attname.data);
+                    added_columns.insert(col_id);
+                  }
+                }
+                else { elog(LOG, "VIRTDB WARN: var_attr is null"); }
               }
-              else
-              {
-                elog(LOG, "VIRTDB WARN: var_attr is null");
-              }
+              else { elog(LOG, "VIRTDB WARN: tupdesc_attrs is null"); }
             }
-            else
-            {
-              elog(LOG, "VIRTDB WARN: tupdesc_attrs is null");
-            }
+            else { elog(LOG, "VIRTDB WARN natts=%d varattno=%d, variable is not valid",variable->varattno,meta->tupdesc->natts); }
           }
-          else
-          {
-            elog(LOG, "VIRTDB WARN natts=%d varattno=%d, variable is not valid",variable->varattno,meta->tupdesc->natts);
-          }
+          all_variables.clear();
         }
         else
         {
@@ -506,14 +515,7 @@ namespace virtdb_fdw_priv {
 
         cell = cell->next;
       }
-
-      // Filters
-      foreach(l, node->ss.ps.plan->qual)
-      {
-        Expr* clause = (Expr*) lfirst(l);
-        query_data.add_filter( filterChain->apply(clause, meta) );
-      }
-
+      
       // Limit
       // From: http://www.postgresql.org/docs/9.2/static/fdw-callbacks.html
       // Information about the table to scan is accessible through the ForeignScanState node
@@ -554,7 +556,7 @@ namespace virtdb_fdw_priv {
       onError(e.what());
     }
   }
-
+  
   static TupleTableSlot *
   cbIterateForeignScan(ForeignScanState *node)
   {
@@ -570,6 +572,7 @@ namespace virtdb_fdw_priv {
       auto handler = current_provider->get_data_handler(reinterpret_cast<long>(node));
 
       if( !handler ) { THROW_("handler has invalid value"); }
+      if( handler->column_id_map().size() == 0 ) { THROW_("handler has no columns"); }
 
       {
         feeder & fdr = handler->get_feeder();
@@ -795,6 +798,9 @@ namespace virtdb_fdw_priv {
     }
     catch(const std::exception& e)
     {
+#ifndef RELEASE
+      elog_node_display(INFO, "node: ", node->ss.ps.plan, true);
+#endif
       onError(e.what());
       return nullptr;
     }

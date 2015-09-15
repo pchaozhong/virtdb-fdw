@@ -53,7 +53,9 @@ protected:
   size_t get_filter_id(const Expr * clause) const
   {
     size_t filter_id = 9999999;
-    const Var * vp   = get_variable(clause);
+    std::vector<const Var *> vars;
+    // TODO : check variables here ...
+    const Var * vp   = get_variable(clause, vars);
 
     if (vp && vp->varattno)
     {

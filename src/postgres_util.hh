@@ -1,6 +1,7 @@
 #pragma once
 
 #include <logger.hh>
+#include <vector>
 
 extern "C" {
     #include <nodes/primnodes.h>
@@ -10,44 +11,78 @@ extern "C" {
 
 namespace virtdb {
 
-const Var* get_variable(const Expr* expr)
+const Var *
+get_variable(const Expr* expr,
+             std::vector<const Var *> & results)
 {
     switch (expr->type)
     {
         case T_TargetEntry:
             {
                 const TargetEntry* target_entry = reinterpret_cast<const TargetEntry*>(expr);
-                return get_variable(target_entry->expr);
+                return get_variable(target_entry->expr, results);
             }
         case T_OpExpr:
             {
                 const OpExpr* opexpr = reinterpret_cast<const OpExpr*>(expr);
                 const Expr* lop = reinterpret_cast<const Expr*>(get_leftop(&opexpr->xpr));
-                return get_variable(lop);
+                const Expr* rop = reinterpret_cast<const Expr*>(get_rightop(&opexpr->xpr));
+                const Var * left_ret = get_variable(lop, results);
+                const Var * right_ret = get_variable(rop, results);
+                if( left_ret )
+                  return left_ret;
+                else
+                  return right_ret;
             }
         case T_RelabelType:
             {
                 const RelabelType* rl = reinterpret_cast<const RelabelType*>(expr);
-                return reinterpret_cast<const Var*>(rl->arg);
+                const Var* v = reinterpret_cast<const Var*>(rl->arg);
+                results.push_back(v);
+                return v;
             }
         case T_Var:
             {
-                return reinterpret_cast<const Var*>(expr);
+                const Var* v = reinterpret_cast<const Var*>(expr);
+                results.push_back(v);
+                return v;
             }
         case T_CoerceViaIO:
             {
                 const CoerceViaIO* coerce = reinterpret_cast<const CoerceViaIO*>(expr);
-                return reinterpret_cast<const Var*>(coerce->arg);
+                const Var* v = reinterpret_cast<const Var*>(coerce->arg);
+                results.push_back(v);
+                return v;
             }
         case T_NullTest:
             {
                 const NullTest* null_test = reinterpret_cast<const NullTest*>(expr);
-                return reinterpret_cast<const Var*>(null_test->arg);
+                const Var* v = reinterpret_cast<const Var*>(null_test->arg);
+                results.push_back(v);
+                return v;
             }
         case T_FuncExpr:
             {
-                const FuncExpr*  func_expr = reinterpret_cast<const FuncExpr*>(expr);
-                return get_variable(reinterpret_cast<const Expr*>(linitial(func_expr->args)));
+                const FuncExpr* func_expr = reinterpret_cast<const FuncExpr*>(expr);
+                {
+                  ListCell * l;
+                  if(func_expr->args && IsA(func_expr->args, List) )
+                  {
+                    foreach(l, func_expr->args)
+                    {
+                      const Expr* extmp = reinterpret_cast<const Expr*>(lfirst(l));
+                      if( extmp )
+                      {
+                        const Var * retvar = get_variable(extmp, results);
+                        if( retvar )
+                        {
+                          return retvar;
+                        }
+                      }
+                    }
+                  }
+                  return nullptr;
+                }
             }
         default:
         {
@@ -55,6 +90,7 @@ const Var* get_variable(const Expr* expr)
             return nullptr;
         }
     }
+    return nullptr;
 }
 
 } // namespace virtdb
