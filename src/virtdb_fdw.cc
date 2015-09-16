@@ -473,11 +473,12 @@ namespace virtdb_fdw_priv {
       ListCell* cell = node->ss.ps.plan->targetlist->head;
       for (int i = 0; i < n; ++i)
       {
-        if (!IsA(lfirst(cell), TargetEntry))
-        {
+        TargetEntry *tle = (TargetEntry *) lfirst(cell);
+        if (!IsA(tle, TargetEntry))
           continue;
-        }
-        Expr* expr = reinterpret_cast<Expr*> (lfirst(cell));
+      	if (tle->resjunk)
+          continue;
+        Expr* expr = reinterpret_cast<Expr*> (tle);
         const Var* single_variable = get_variable(expr, all_variables);
 
         if (single_variable != nullptr )
@@ -494,7 +495,8 @@ namespace virtdb_fdw_priv {
                 auto var_attr = tupdesc_attrs[variable->varattno-1];
                 if( var_attr )
                 {
-                  if( added_columns.count(col_id) == 0 )
+                  if( added_columns.count(col_id) == 0 &&
+                      var_attr->attname.data )
                   {
                     query_data.add_column(col_id, var_attr->attname.data);
                     added_columns.insert(col_id);
