@@ -15,6 +15,8 @@ const Var *
 get_variable(const Expr* expr,
              std::vector<const Var *> & results)
 {
+    if( !expr ) return nullptr;
+    
     switch (expr->type)
     {
         case T_TargetEntry:
@@ -46,6 +48,11 @@ get_variable(const Expr* expr,
                 const Var* v = reinterpret_cast<const Var*>(expr);
                 results.push_back(v);
                 return v;
+            }
+        case T_Const:
+            {
+                // constant is not a variable
+                return nullptr;
             }
         case T_CoerceViaIO:
             {
