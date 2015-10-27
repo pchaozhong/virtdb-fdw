@@ -271,7 +271,7 @@ namespace virtdb_fdw_priv {
     }
     return current_provider;
   }
-  
+
   // We dont't do anything here right now, it is intended only for optimizations.
   static void
   cbGetForeignRelSize( PlannerInfo *root,
@@ -428,7 +428,7 @@ namespace virtdb_fdw_priv {
     }
     return ret;
   }
-  
+
   static void
   cbBeginForeignScan( ForeignScanState *node,
                      int eflags )
@@ -466,7 +466,7 @@ namespace virtdb_fdw_priv {
         get_variable(clause, all_variables);
         query_data.add_filter( filterChain->apply(clause, meta) );
       }
-      
+
       // Columns
       std::set<engine::column_id_t> added_columns;
       int n = node->ss.ps.plan->targetlist->length;
@@ -482,7 +482,7 @@ namespace virtdb_fdw_priv {
         const Var* single_variable = get_variable(expr, all_variables);
 
         if (single_variable != nullptr )
-        {          
+        {
           for( const Var* variable : all_variables )
           {
             if( variable->varattno <= meta->tupdesc->natts )
@@ -517,7 +517,7 @@ namespace virtdb_fdw_priv {
 
         cell = cell->next;
       }
-      
+
       // Limit
       // From: http://www.postgresql.org/docs/9.2/static/fdw-callbacks.html
       // Information about the table to scan is accessible through the ForeignScanState node
@@ -558,7 +558,7 @@ namespace virtdb_fdw_priv {
       onError(e.what());
     }
   }
-  
+
   static TupleTableSlot *
   cbIterateForeignScan(ForeignScanState *node)
   {
@@ -649,7 +649,7 @@ namespace virtdb_fdw_priv {
                 uint32_t uval = 0;
                 if( fdr.read_uint32(query_col_id, uval, is_null) != feeder::vtr::ok_ )
                 {
-                  LOG_TRACE("read_[u]int32 failed" << V_(column_id) << V_(query_col_id) << "INT4OID");               
+                  LOG_TRACE("read_[u]int32 failed" << V_(column_id) << V_(query_col_id) << "INT4OID");
                   return nullptr;
                 }
                 val = uval;
@@ -668,7 +668,7 @@ namespace virtdb_fdw_priv {
                 uint64_t uval = 0;
                 if( fdr.read_uint64(query_col_id, uval, is_null) != feeder::vtr::ok_ )
                 {
-                  LOG_TRACE("read_[u]int64 failed" << V_(column_id) << V_(query_col_id) << "INT8OID");                 
+                  LOG_TRACE("read_[u]int64 failed" << V_(column_id) << V_(query_col_id) << "INT8OID");
                   return nullptr;
                 }
                 val = uval;
@@ -727,6 +727,22 @@ namespace virtdb_fdw_priv {
                                     CStringGetDatum(ptr),
                                     ObjectIdGetDatum(InvalidOid),
                                     Int32GetDatum(meta->tupdesc->attrs[column_id]->atttypmod) );
+              }
+              break;
+            }
+            case BOOLOID:
+            {
+              bool val = false;
+              if( fdr.read_bool(query_col_id, val, is_null) != feeder::vtr::ok_ )
+              {
+                LOG_TRACE("read_bool failed" << V_(column_id) << V_(query_col_id) << "BOOLOID");
+                return nullptr;
+              }
+
+              slot->tts_isnull[column_id] = is_null;
+              if ( !is_null )
+              {
+                  slot->tts_values[column_id] = BoolGetDatum(val);
               }
               break;
             }
